@@ -1,0 +1,18 @@
+[package]
+name = "aprodb-types"
+version = "0.1.0"
+edition = "2024"
+authors = ["Andrea Provenzali"]
+license = "Apache-2.0"
+repository = "https://github.com/provenzali/aprodb"
+description = "Tipi logici e codec versionati di AProDB"
+
+[dependencies]
+bincode = { version = "2.0", features = ["serde"] }
+crc32fast = "1.5"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+hex = "0.4"
+proptest = "1.7"

@@ -1,0 +1,55 @@
+[package]
+name = "aprodb"
+version = "0.1.0"
+edition = "2024"
+description = "Database key-value vettoriale persistente, parallelo e GPU-aware"
+authors = ["Andrea Provenzali"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/provenzali/aprodb"
+homepage = "https://github.com/provenzali/aprodb"
+
+[workspace]
+members = [
+    ".",
+    "crates/aprodb-compute",
+    "crates/aprodb-cli",
+    "crates/aprodb-engine",
+    "crates/aprodb-client",
+    "crates/aprodb-proto",
+    "crates/aprodb-server",
+    "crates/aprodb-storage",
+    "crates/aprodb-types",
+]
+resolver = "3"
+
+[features]
+default = ["gpu"]
+gpu = ["dep:bytemuck", "dep:pollster", "dep:wgpu", "aprodb-engine/gpu"]
+
+[dependencies]
+aprodb-engine = { path = "crates/aprodb-engine", version = "0.1.0" }
+blake3 = "1"
+bytemuck = { version = "1.24", features = ["derive"], optional = true }
+clap = { version = "4.5", features = ["derive"] }
+crc32fast = "1.5"
+parking_lot = "0.12"
+pollster = { version = "0.4", optional = true }
+rayon = "1.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+wgpu = { version = "30", optional = true }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+zstd = "0.13"
+
+[dev-dependencies]
+hex = "0.4"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[[bench]]
+name = "throughput"
+harness = false

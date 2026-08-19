@@ -1,0 +1,18 @@
+[package]
+name = "aprodb-cli"
+version = "0.1.0"
+edition = "2024"
+authors = ["Andrea Provenzali"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/provenzali/aprodb"
+description = "CLI amministrativa di AProDB"
+default-run = "aprodb-cli"
+
+[dependencies]
+aprodb = { path = "../..", version = "0.1.0", default-features = false }
+aprodb-client = { path = "../aprodb-client", version = "0.1.0" }
+aprodb-engine = { path = "../aprodb-engine", version = "0.1.0", default-features = false }
+aprodb-types = { path = "../aprodb-types", version = "0.1.0" }
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

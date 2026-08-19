@@ -1,0 +1,39 @@
+name: CPU CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      long_tests:
+        description: Run explicit long operability tests
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy CPU-only
+        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+      - name: Test CPU-only
+        run: cargo test --workspace --no-default-features
+      - name: Compile fuzz target
+        run: cargo check --manifest-path fuzz/Cargo.toml
+      - name: Verify distributable packages
+        run: cargo package --workspace
+      - name: Long operability gate
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.long_tests }}
+        run: cargo test -p aprodb-engine --no-default-features --test operability_long -- --ignored --exact repeated_encrypted_backup_restore_and_rekey_remain_consistent

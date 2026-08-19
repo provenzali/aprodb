@@ -1,0 +1,447 @@
+syntax = "proto3";
+
+package aprodb.v1;
+
+message ClientHello {
+  bytes magic = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+  EndpointRole role = 4;
+  bytes auth_token = 5;
+  uint32 max_frame_bytes = 6;
+}
+
+message ServerHello {
+  bool accepted = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+  string server_version = 4;
+  uint32 max_frame_bytes = 5;
+  ErrorCode error_code = 6;
+  string error_message = 7;
+}
+
+enum EndpointRole { DATA = 0; ADMIN = 1; }
+enum WireDurability { DURABLE = 0; RELAXED = 1; }
+enum ExpectedMode { ANY = 0; MISSING = 1; EXACT = 2; }
+enum WireSurfaceKind { WORK = 0; READ = 1; }
+enum WireSurfaceFormat { APRODB_RECORDS = 0; JSON = 1; }
+enum WireCompressionMode { RAW = 0; ADAPTIVE_ZSTANDARD = 1; }
+enum WireVectorMetric { DOT = 0; COSINE = 1; }
+enum WireComputePreference { CPU = 0; ACCELERATOR = 1; AUTO = 2; }
+enum WireComputeExecution { CPU_EXECUTION = 0; ACCELERATOR_EXECUTION = 1; CPU_FALLBACK = 2; }
+enum ResponseStatus { OK = 0; ERROR = 1; }
+enum ErrorCode {
+  NONE = 0;
+  INVALID_REQUEST = 1;
+  UNAUTHENTICATED = 2;
+  UNAUTHORIZED = 3;
+  NOT_FOUND = 4;
+  CONFLICT = 5;
+  RESOURCE_LIMIT = 6;
+  BACKPRESSURE = 7;
+  DEADLINE_EXCEEDED = 8;
+  STORAGE = 9;
+  CORRUPT = 10;
+  INCOMPATIBLE = 11;
+  UNSUPPORTED = 12;
+  INTERNAL = 13;
+  CHANGE_LOG_GAP = 14;
+}
+
+message Version { uint64 epoch = 1; uint32 shard_id = 2; uint64 sequence = 3; }
+message Key { bytes collection = 1; bytes partition = 2; bytes key = 3; }
+message ExpectedVersion { ExpectedMode mode = 1; Version version = 2; }
+message VectorPayload { repeated float values = 1; }
+message DocumentPayload { uint32 schema_version = 1; bytes bytes = 2; }
+message BlobReference { bytes id = 1; uint64 logical_bytes = 2; }
+message TimestampPayload { sint64 unix_ms = 1; }
+
+message Payload {
+  oneof kind {
+    bytes bytes_value = 1;
+    string text_value = 2;
+    sint64 integer_value = 3;
+    double float_value = 4;
+    bool boolean_value = 5;
+    TimestampPayload timestamp = 6;
+    VectorPayload vector = 7;
+    DocumentPayload document = 8;
+    BlobReference blob_ref = 9;
+  }
+}
+
+message PutOperation {
+  Key key = 1;
+  Payload payload = 2;
+  string content_type = 3;
+  map<string, bytes> metadata = 4;
+  optional uint64 expires_at_unix_ms = 5;
+  ExpectedVersion expected = 6;
+  bytes delta = 7;
+  bytes idempotency_key_hash = 8;
+}
+
+message GetOperation { Key key = 1; }
+message DeleteOperation { Key key = 1; ExpectedVersion expected = 2; bytes delta = 3; bytes idempotency_key_hash = 4; }
+message AtomicMutation { oneof kind { PutOperation put = 1; DeleteOperation delete = 2; } }
+message AtomicBatchOperation { repeated AtomicMutation mutations = 1; }
+message SyncOperation {}
+message HealthOperation {}
+message StatsOperation {}
+message VerifyOperation {}
+message CompactOperation {}
+message ShutdownOperation {}
+message ExplainPlacementOperation { Key key = 1; }
+message CacheStatsOperation {}
+message ExpireOperation { uint64 limit = 1; }
+message WorkflowScopeOperation { bytes collection = 1; bytes partition = 2; }
+message ClaimOperation {
+  WorkflowScopeOperation scope = 1;
+  uint64 max_records = 2;
+  uint64 lease_duration_ms = 3;
+  bytes idempotency_key_hash = 4;
+}
+message LeaseOperation {
+  Key key = 1;
+  bytes lease_id = 2;
+  uint64 fencing_token = 3;
+  uint64 extension_ms = 4;
+  bytes idempotency_key_hash = 5;
+}
+message FailOperation { LeaseOperation lease = 1; bool permanent = 2; }
+message PublishOperation { Key key = 1; bytes idempotency_key_hash = 2; }
+message SubscribeChangesOperation {
+  bytes collection = 1;
+  uint32 shard = 2;
+  uint64 after_sequence = 3;
+  uint64 limit = 4;
+}
+message SurfaceDefinition {
+  string id = 1;
+  WireSurfaceKind kind = 2;
+  bytes source_tenant = 3;
+  bytes source_namespace = 4;
+  bytes source_collection = 5;
+  repeated string workflow_states = 6;
+  WireSurfaceFormat format = 7;
+  uint64 max_records = 8;
+  uint64 max_bytes = 9;
+  uint64 retained_generations = 10;
+}
+message CreateSurfaceOperation { SurfaceDefinition definition = 1; }
+message BuildSurfaceOperation { string projection_id = 1; uint64 max_events = 2; }
+message GetSurfaceOperation { string projection_id = 1; }
+message CompressionStatsOperation {}
+message ComputeStatsOperation {}
+message AuditListOperation { optional uint64 after_sequence = 1; uint64 limit = 2; }
+message BackupOperation { string name = 1; }
+message CompressionTierPolicy {
+  WireCompressionMode mode = 1;
+  sint32 zstd_level = 2;
+  uint64 min_input_bytes = 3;
+  uint64 min_savings_bytes = 4;
+  optional uint64 dictionary_id = 5;
+}
+message CompressionPolicy {
+  CompressionTierPolicy surface = 1;
+  CompressionTierPolicy hot = 2;
+  CompressionTierPolicy warm = 3;
+  CompressionTierPolicy cold = 4;
+  CompressionTierPolicy archive = 5;
+  repeated string skip_content_type_prefixes = 6;
+}
+message CompressionPolicyOperation { bytes collection = 1; }
+message ConfigureCompressionOperation { bytes collection = 1; CompressionPolicy policy = 2; }
+message TrainDictionaryOperation {
+  bytes collection = 1;
+  string schema = 2;
+  repeated Payload training_samples = 3;
+  repeated Payload validation_samples = 4;
+  uint64 max_dictionary_bytes = 5;
+  uint64 minimum_validation_gain_bytes = 6;
+}
+message VectorSearchOperation {
+  bytes collection = 1;
+  repeated float query = 2;
+  WireVectorMetric metric = 3;
+  uint64 limit = 4;
+  uint64 max_scan_records = 5;
+  WireComputePreference preference = 6;
+}
+
+message Request {
+  uint64 request_id = 1;
+  uint64 deadline_unix_ms = 2;
+  bytes tenant = 3;
+  bytes namespace = 4;
+  WireDurability durability = 5;
+  oneof operation {
+    PutOperation put = 10;
+    GetOperation get = 11;
+    DeleteOperation delete = 12;
+    AtomicBatchOperation atomic_batch = 13;
+    SyncOperation sync = 14;
+    HealthOperation health = 20;
+    StatsOperation stats = 21;
+    VerifyOperation verify = 22;
+    CompactOperation compact = 23;
+    ShutdownOperation shutdown = 24;
+    ExplainPlacementOperation explain_placement = 25;
+    CacheStatsOperation cache_stats = 26;
+    ExpireOperation expire = 27;
+    PutOperation append = 30;
+    ClaimOperation claim = 31;
+    LeaseOperation heartbeat = 32;
+    LeaseOperation complete = 33;
+    FailOperation fail = 34;
+    PublishOperation publish = 35;
+    SubscribeChangesOperation subscribe_changes = 36;
+    GetSurfaceOperation get_surface = 37;
+    CreateSurfaceOperation create_surface = 40;
+    BuildSurfaceOperation build_surface = 41;
+    BuildSurfaceOperation rebuild_surface = 42;
+    CompressionStatsOperation compression_stats = 43;
+    CompressionPolicyOperation compression_policy = 44;
+    ConfigureCompressionOperation configure_compression = 45;
+    TrainDictionaryOperation train_dictionary = 46;
+    ComputeStatsOperation compute_stats = 47;
+    AuditListOperation audit_list = 48;
+    BackupOperation backup = 49;
+    VectorSearchOperation vector_search = 50;
+  }
+}
+
+message Record {
+  bytes tenant = 1;
+  bytes namespace = 2;
+  Key key = 3;
+  Payload payload = 4;
+  string content_type = 5;
+  Version version = 6;
+  uint64 created_at_unix_ms = 7;
+  uint64 updated_at_unix_ms = 8;
+  optional uint64 expires_at_unix_ms = 9;
+  map<string, bytes> metadata = 10;
+  bool tombstone = 11;
+  Workflow workflow = 12;
+  bytes idempotency_key_hash = 13;
+  optional uint64 dictionary_id = 14;
+}
+
+message Receipt {
+  Version version = 1;
+  WireDurability durability = 2;
+  uint64 durable_watermark = 3;
+  bytes batch_id = 4;
+}
+
+message Workflow {
+  string state = 1;
+  uint32 attempt = 2;
+  bytes lease_id = 3;
+  uint64 fencing_token = 4;
+  optional uint64 lease_deadline_unix_ms = 5;
+}
+
+message Stats {
+  uint64 disk_bytes = 1;
+  uint64 write_buffer_bytes = 2;
+  uint64 journal_fragments = 3;
+  uint64 table_count = 4;
+  uint64 completed_compactions = 5;
+  uint64 active_connections = 10;
+  uint64 inflight_requests = 11;
+  uint64 total_requests = 12;
+  uint64 rejected_requests = 13;
+  uint64 auth_failures = 14;
+}
+
+message Placement {
+  Version canonical_version = 1;
+  uint32 radial_score_millis = 2;
+  uint32 freshness_millis = 3;
+  uint32 urgency_millis = 4;
+  string current_layer = 5;
+  string recommended_layer = 6;
+  string storage_class = 7;
+  bool pinned = 8;
+  bool object_cache_resident = 9;
+  bool physical_tiering_supported = 10;
+  repeated string reasons = 11;
+}
+
+message CacheMetrics {
+  uint64 budget_bytes = 1;
+  uint64 resident_bytes = 2;
+  uint64 entries = 3;
+  uint64 hits = 4;
+  uint64 misses = 5;
+  uint64 admissions = 6;
+  uint64 rejections = 7;
+  uint64 evictions = 8;
+}
+
+message CacheStats {
+  CacheMetrics metadata = 1;
+  CacheMetrics objects = 2;
+  CacheMetrics negative = 3;
+  CacheMetrics compressed = 4;
+}
+
+message CompressionStats {
+  uint64 logical_bytes = 1;
+  uint64 stored_bytes = 2;
+  uint64 raw_records = 3;
+  uint64 zstd_records = 4;
+  uint64 dictionary_records = 5;
+  uint64 incompressible_fallbacks = 6;
+  uint64 content_type_skips = 7;
+  uint64 compress_micros = 8;
+  uint64 decompress_micros = 9;
+  uint64 codec_failures = 10;
+  uint64 channels = 11;
+  uint64 scratch_budget_bytes = 12;
+  uint64 scratch_in_use_bytes = 13;
+}
+
+message CompressionDictionary {
+  uint64 id = 1;
+  string schema = 2;
+  uint64 bytes = 3;
+  uint32 checksum = 4;
+  uint64 created_at_unix_ms = 5;
+  uint64 validation_raw_bytes = 6;
+  uint64 validation_without_dictionary_bytes = 7;
+  uint64 validation_with_dictionary_bytes = 8;
+}
+
+message CostEstimate {
+  uint64 transfer_in_micros = 1;
+  uint64 queue_wait_micros = 2;
+  uint64 launch_micros = 3;
+  uint64 accelerator_compute_micros = 4;
+  uint64 transfer_out_micros = 5;
+  uint64 synchronization_micros = 6;
+  uint64 risk_margin_micros = 7;
+  uint64 accelerator_total_micros = 8;
+  uint64 cpu_compute_micros = 9;
+  bool vram_cache_hit = 10;
+}
+message VectorHit { bytes partition = 1; bytes key = 2; Version version = 3; float score = 4; }
+message VectorSearchResult {
+  repeated VectorHit hits = 1;
+  uint64 scanned_records = 2;
+  uint64 vector_candidates = 3;
+  WireComputeExecution execution = 4;
+  optional string accelerator = 5;
+  CostEstimate estimate = 6;
+  optional string fallback_reason = 7;
+}
+message ComputeStats {
+  uint64 requests = 1;
+  uint64 cpu_runs = 2;
+  uint64 accelerator_runs = 3;
+  uint64 cpu_fallbacks = 4;
+  uint64 queue_rejections = 5;
+  uint64 accelerator_failures = 6;
+  uint64 request_timeouts = 7;
+  uint64 circuit_open_rejections = 8;
+  uint64 micro_batches = 9;
+  uint64 micro_batched_requests = 10;
+  uint64 inflight_bytes = 11;
+  uint64 peak_inflight_bytes = 12;
+  optional string accelerator_name = 13;
+  uint64 vram_budget_bytes = 20;
+  uint64 vram_resident_bytes = 21;
+  uint64 vram_entries = 22;
+  uint64 vram_hits = 23;
+  uint64 vram_misses = 24;
+  uint64 vram_evictions = 25;
+  uint64 upload_bytes = 26;
+  uint64 readback_bytes = 27;
+  uint64 transfer_micros = 28;
+  uint64 kernel_micros = 29;
+  uint64 device_resets = 30;
+}
+
+message ExpirationStats {
+  uint64 scanned = 1;
+  uint64 expired = 2;
+  uint64 stale_entries = 3;
+}
+
+message SurfaceGeneration {
+  string projection_id = 1;
+  uint64 generation = 2;
+  map<uint32, uint64> source_watermarks = 3;
+  WireSurfaceFormat format = 4;
+  uint64 record_count = 5;
+  bytes serialized = 6;
+  uint64 created_at_unix_ms = 7;
+  map<uint32, uint64> stale_by_sequences = 8;
+  bool complete = 9;
+  repeated string errors = 10;
+}
+
+message SurfaceBuild {
+  string projection_id = 1;
+  uint64 generation = 2;
+  uint64 events_applied = 3;
+  map<uint32, uint64> source_watermarks = 4;
+  uint64 record_count = 5;
+  uint64 serialized_bytes = 6;
+}
+
+message AuditEvent {
+  uint64 sequence = 1;
+  bytes event_id = 2;
+  uint64 at_unix_ms = 3;
+  uint64 request_id = 4;
+  string principal = 5;
+  string operation = 6;
+  string outcome = 7;
+  optional bytes target_hash = 8;
+  optional string error_class = 9;
+}
+
+message BackupInfo {
+  string name = 1;
+  uint64 catalog_generation = 2;
+  uint64 files = 3;
+  uint64 bytes = 4;
+  uint64 logical_bytes = 5;
+  bool encrypted = 6;
+}
+
+message Response {
+  uint64 request_id = 1;
+  ResponseStatus status = 2;
+  ErrorCode error_code = 3;
+  string error_message = 4;
+  string server_version = 5;
+  Record record = 6;
+  repeated Receipt receipts = 7;
+  Stats stats = 8;
+  bool healthy = 9;
+  uint64 retry_after_ms = 10;
+  Placement placement = 11;
+  CacheStats cache_stats = 12;
+  ExpirationStats expiration = 13;
+  repeated bytes change_events = 14;
+  uint64 change_watermark = 15;
+  SurfaceGeneration surface = 16;
+  SurfaceBuild surface_build = 17;
+  repeated Record claimed_records = 18;
+  uint64 server_time_unix_ms = 19;
+  CompressionStats compression_stats = 20;
+  CompressionPolicy compression_policy = 21;
+  CompressionDictionary compression_dictionary = 22;
+  VectorSearchResult vector_search = 23;
+  ComputeStats compute_stats = 24;
+  repeated AuditEvent audit_events = 25;
+  optional uint64 audit_next_sequence = 26;
+  BackupInfo backup = 27;
+}
+// SPDX-FileCopyrightText: 2026 Andrea Provenzali
+// SPDX-License-Identifier: Apache-2.0

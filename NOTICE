@@ -1,0 +1,14 @@
+AProDB — Adaptive Parallel Object Database
+
+Original project creator and specification author: Andrea Provenzali
+ORCID: https://orcid.org/0009-0009-9677-9840
+
+Copyright © 2026 Andrea Provenzali and AProDB contributors.
+
+AProDB uses a component-scoped licensing model. The database core is licensed
+under GNU AGPL version 3 only. The Rust client, protocol and shared public types
+are licensed under Apache License 2.0. LICENSING.md defines the exact boundary.
+
+This notice identifies origin and authorship. It does not replace the applicable
+license text and does not grant rights to imply endorsement by the original
+project or its author.

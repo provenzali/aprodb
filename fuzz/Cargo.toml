@@ -1,0 +1,28 @@
+[package]
+name = "aprodb-fuzz"
+version = "0.0.0"
+edition = "2024"
+authors = ["Andrea Provenzali"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/provenzali/aprodb"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+aprodb-proto = { path = "../crates/aprodb-proto" }
+aprodb-types = { path = "../crates/aprodb-types" }
+
+[target.'cfg(not(windows))'.dependencies]
+libfuzzer-sys = "0.4"
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "logical_frames"
+path = "fuzz_targets/logical_frames.rs"
+test = false
+doc = false
+bench = false

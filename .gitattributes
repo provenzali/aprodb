@@ -1,0 +1,17 @@
+* text=auto
+
+.gitattributes text eol=lf
+.gitignore text eol=lf
+
+*.rs text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+*.proto text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.cff text eol=lf
+*.hex text eol=lf
+*.json text eol=lf
+LICENSE* text eol=lf
+NOTICE text eol=lf

@@ -1,0 +1,25 @@
+[package]
+name = "aprodb-compute"
+version = "0.1.0"
+edition = "2024"
+authors = ["Andrea Provenzali"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/provenzali/aprodb"
+description = "Operatori compute CPU di riferimento e boundary GPU di AProDB"
+
+[features]
+default = []
+gpu = ["dep:bytemuck", "dep:pollster", "dep:wgpu"]
+
+[dependencies]
+aprodb-types = { path = "../aprodb-types", version = "0.1.0" }
+bytemuck = { version = "1.24", features = ["derive"], optional = true }
+crossbeam-channel = "0.5"
+parking_lot = "0.12"
+pollster = { version = "0.4", optional = true }
+rayon = "1.12"
+wgpu = { version = "30", optional = true }
+
+[[example]]
+name = "compute_crossover"
+required-features = ["gpu"]

@@ -1,0 +1,36 @@
+[package]
+name = "aprodb-server"
+version = "0.1.0"
+edition = "2024"
+authors = ["Andrea Provenzali"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/provenzali/aprodb"
+description = "Server centrale single-node di AProDB"
+
+[features]
+default = ["gpu"]
+gpu = ["aprodb-engine/gpu"]
+
+[dependencies]
+aprodb-engine = { path = "../aprodb-engine", version = "0.1.0", default-features = false }
+aprodb-proto = { path = "../aprodb-proto", version = "0.1.0" }
+aprodb-types = { path = "../aprodb-types", version = "0.1.0" }
+bytes = "1"
+blake3 = "1"
+futures-util = { version = "0.3", features = ["sink"] }
+rustls = "0.23"
+rustls-pemfile = "2"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+subtle = "2.6"
+sysinfo = { version = "=0.39.6", default-features = false, features = ["system"] }
+thiserror = "2"
+tokio = { version = "1.53", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+tokio-rustls = "0.26"
+
+[dev-dependencies]
+aprodb-client = { path = "../aprodb-client", version = "0.1.0" }
+rcgen = "0.13"
+tempfile = "3"

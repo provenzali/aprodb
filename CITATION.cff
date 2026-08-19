@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use AProDB, cite this software and its original author."
+title: "AProDB: Adaptive Parallel Object Database"
+abstract: "A single-node radial database in Rust, currently available for beta testing."
+type: software
+authors:
+  - family-names: Provenzali
+    given-names: Andrea
+    orcid: "https://orcid.org/0009-0009-9677-9840"
+version: 0.1.0
+repository-code: "https://github.com/provenzali/aprodb"
+url: "https://github.com/provenzali/aprodb"
+license: AGPL-3.0-only

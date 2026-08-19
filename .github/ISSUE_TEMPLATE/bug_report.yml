@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible problem in the AProDB public beta
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        AProDB is in beta testing. Do not include credentials, private data or production database contents.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0 or commit hash
+    validations:
+      required: true
+  - type: dropdown
+    id: path
+    attributes:
+      label: Execution path
+      options:
+        - CPU-only
+        - Default features
+        - GPU feature
+        - Client/server
+        - Embedded prototype 0.1
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Provide minimal steps and sanitized configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Rust version, filesystem and relevant hardware.

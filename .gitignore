@@ -1,0 +1,38 @@
+# Build Rust, compresi i crate annidati.
+/target/
+**/target/
+
+# Dati e artefatti runtime locali di AProDB.
+/.aprodb/
+**/.aprodb/
+/aprodb-data/
+/aprodb-backups/
+/data/
+/db/
+/wal/
+/snapshots/
+**/APRODB_FORMAT
+**/APRODB_ENCRYPTION
+**/backup-manifest.json
+**/*.aprodb
+**/*.wal
+**/*.snapshot
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+
+# Configurazioni locali e credenziali: pubblicare soltanto esempi sanitizzati.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*keyring*.json
+
+# Output diagnostici locali.
+*.log
+*.profraw
+*.profdata
+
+# Handoff locale di sessione: contiene path e stato macchina-specifici.
+/implementation-prompt.md

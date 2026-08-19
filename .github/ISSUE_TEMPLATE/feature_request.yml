@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a scoped improvement consistent with paper.md
+title: "feature: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the concrete need rather than only a proposed API.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed increment
+      description: Include invariants, resource limits and acceptance tests when known.
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: I checked paper.md and this request does not add general SQL, joins or premature replication.
+          required: true

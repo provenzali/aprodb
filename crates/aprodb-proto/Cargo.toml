@@ -1,0 +1,18 @@
+[package]
+name = "aprodb-proto"
+version = "0.1.0"
+edition = "2024"
+authors = ["Andrea Provenzali"]
+license = "Apache-2.0"
+repository = "https://github.com/provenzali/aprodb"
+description = "Protocollo Protobuf versionato e frame limitati di AProDB"
+
+[dependencies]
+aprodb-types = { path = "../aprodb-types", version = "0.1.0" }
+bytes = "1"
+prost = "0.14"
+thiserror = "2"
+
+[dev-dependencies]
+hex = "0.4"
+proptest = "1"
