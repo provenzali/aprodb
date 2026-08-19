@@ -764,3 +764,30 @@ La scansione finale sui 129 file candidati non ha rilevato file da almeno 10
 MiB, pattern forti di segreti o indirizzi email. `.gitignore` è stato esteso con
 directory root dati, database, WAL e snapshot e con l'estensione `.aprodb`;
 `Cargo.lock` rimane versionabile e `target/bench-lab` non è stato rimosso.
+
+## 2026-08-19 — Pubblicazione della beta pubblica
+
+Il target è stato confermato e il repository pubblico è stato creato come
+`provenzali/aprodb`, con branch predefinito `main` e `origin` HTTPS. Il commit
+baseline `b0d5d1ebbda4aae1052028f7f8ed34f8e922cf7b` contiene 135 file ed è stato
+pubblicato senza force-push. GitHub riconosce entrambe le licenze AGPL-3.0 e
+Apache-2.0 e rende disponibili citazione, contribution guide e security policy.
+
+La pagina principale dichiara il beta test, collega manuale, abstract bilingue e
+paper e rende due diagrammi Mermaid: confini dell'architettura e percorso dal
+record canonico alla superficie incrementale. Il paper è qualificato come
+specifica tecnica pubblica non peer-reviewed, distinta dalle funzioni realmente
+utilizzabili descritte nel manuale. La pubblicazione Internet può costituire
+stato dell'arte per eventuali domande di brevetto future; il copyright protegge
+testo e codice, non idee, algoritmi e funzionalità astratte.
+
+Sul repository sono stati configurati topic, dependency graph, avvisi
+Dependabot, push protection e private vulnerability reporting. La GitHub Action
+CPU-only del commit baseline (`32301352066`) ha completato con successo format,
+Clippy, test, fuzz compile-check e packaging.
+
+AProDB è stato inoltre aggiunto al record ORCID
+`0009-0009-9677-9840` come opera pubblica di tipo Software, data 2026-08-19,
+URL `https://github.com/provenzali/aprodb`, citazione BibTeX e ruolo Software di
+Andrea Provenzali. L'opera è stata inserita fra quelle in evidenza; nessun dato
+personale ulteriore è stato reso pubblico.
