@@ -1,15 +1,8 @@
 # Third-party dependency licenses
 
-Generated from `cargo metadata --format-version 1` on 19 August 2026 for
-the locked workspace graph, including optional, development and build
-dependencies. This inventory records package metadata; the authoritative terms
-remain those distributed by each dependency.
+Generated from `cargo metadata --format-version 1` on 19 August 2026 for the locked workspace graph, including optional, development, and build dependencies. This inventory records package metadata; the authoritative terms remain those distributed by each dependency.
 
-No dependency in the graph has a missing license field. Expressions containing
-`OR` expose a choice of terms; AProDB relies on a permissive compatible option
-where one is offered. The audit found no dependency whose only declared option
-is an incompatible reciprocal license. Re-run this inventory whenever
-`Cargo.lock` changes.
+No dependency in the graph has a missing license field. Expressions containing `OR` present a choice of terms; AProDB relies on a permissive, compatible option where one is available. The audit found no dependency whose only declared option is an incompatible reciprocal license. Re-run this inventory whenever `Cargo.lock` changes.
 
 | Package | Version | Declared license |
 |---|---:|---|

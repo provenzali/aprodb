@@ -5,110 +5,110 @@
 [![Integration: Apache-2.0](https://img.shields.io/badge/integration-Apache--2.0-green.svg)](LICENSING.md)
 
 > [!WARNING]
-> **Stato: beta test.** AProDB è disponibile per valutazione, sviluppo e
-> collaudo, ma non è ancora production-ready. Formati e API 1.x possono
-> richiedere migrazioni esplicite prima della prima release stabile.
+> **Status: beta.** AProDB is available for evaluation, development,
+> and testing, but it is not production-ready. The 1.x formats and APIs may
+> require explicit migrations before the first stable release.
 
-AProDB (*Adaptive Parallel Object Database*) è un database sperimentale scritto in Rust. Il repository contiene il prototipo embedded 0.1 e, separatamente, il nuovo motore canonico 1.x descritto in [paper.md](paper.md).
+AProDB (*Adaptive Parallel Object Database*) is an experimental database written in Rust. This repository contains the embedded 0.1 prototype as well as the new canonical 1.x engine described in [paper.md](paper.md).
 
-## In breve
+## At a glance
 
-AProDB conserva dati canonici durevoli e mantiene attorno a essi workflow,
-change stream, proiezioni e superfici incrementali. La CPU definisce la
-semantica di riferimento; una GPU opzionale può accelerare operatori batch e
-ricerca vettoriale esatta senza diventare una dipendenza dello storage. Leggi
-l'[abstract bilingue](ABSTRACT.md), la [specifica tecnica](paper.md) e il
-[manuale delle funzioni realmente disponibili](manual.md).
+AProDB stores durable canonical data and maintains workflows, change streams,
+projections, and incremental surfaces around it. The CPU defines the reference
+semantics; an optional GPU can accelerate batch operators and exact vector
+search without becoming a storage dependency. Read the [abstract](ABSTRACT.md),
+the [technical specification](paper.md), and the [manual for features that are
+actually available](manual.md).
 
 ```mermaid
 flowchart LR
-    App[Applicazioni] --> Client[Client Rust / protocollo]
-    Client --> Server[Server centrale]
-    Server --> Engine[Engine canonico]
-    Engine --> Storage[(Fjall + record durevoli)]
-    Engine --> Changes[Change log logico]
-    Changes --> Workflow[Workflow e superfici]
-    Engine --> CPU[CPU di riferimento]
-    Engine -. accelerazione opzionale .-> GPU[GPU / wgpu]
+    App[Applications] --> Client[Rust client / protocol]
+    Client --> Server[Central server]
+    Server --> Engine[Canonical engine]
+    Engine --> Storage[(Fjall + durable records)]
+    Engine --> Changes[Logical change log]
+    Changes --> Workflow[Workflows and surfaces]
+    Engine --> CPU[Reference CPU]
+    Engine -. optional acceleration .-> GPU[GPU / wgpu]
 ```
 
 ```mermaid
 flowchart TB
-    Record[Record canonico] --> Durable[Commit atomico e receipt]
-    Durable --> Event[Change event versionato]
-    Event --> Projection[Proiezione incrementale]
-    Projection --> Surface[Superficie di lettura immutabile]
-    Event --> Watermark[Watermark consumer]
-    Watermark --> Retention[Retention e garbage collection]
+    Record[Canonical record] --> Durable[Atomic commit and receipt]
+    Durable --> Event[Versioned change event]
+    Event --> Projection[Incremental projection]
+    Projection --> Surface[Immutable read surface]
+    Event --> Watermark[Consumer watermark]
+    Watermark --> Retention[Retention and garbage collection]
 ```
 
-## Stato del progetto
+## Project status
 
-- La CLI e l'API alla radice restano il prototipo 0.1 single-process.
-- `aprodb::v1` espone la verticale Milestone 1: storage Fjall, tipi e formati
-  logici versionati, lock esclusivo, change log atomico, Durable/Relaxed,
-  Put/Get/Delete/CAS/AtomicBatch, checkpoint logico, retention e recovery.
-- La Milestone 2 aggiunge daemon centrale, protocollo Protobuf limitato, TCP e
-  named pipe/Unix socket, client Rust async/bloccante, auth data/admin,
-  backpressure, metriche e CLI amministrativa.
-- La Milestone 3 aggiunge budget memoria effettivo, cache separate e limitate,
-  TTL indicizzato, descrittori e policy radiali persistenti, storage class
-  logiche ed `ExplainPlacement`. Il tiering fisico non è dichiarato da Fjall.
-- La Milestone 4 aggiunge idempotenza persistente, workflow at-least-once con
-  lease e fencing, change stream paginato e superfici work/read incrementali,
-  generazionali e ricostruibili. Protocollo, client e test TCP coprono l'intera
-  verticale.
-- La Milestone 5 aggiunge frame canonici Raw/Zstandard adattivi per tier,
-  content-type skip, pool/scratch limitati, dizionari versionati e validati,
-  cache compressa/decompressa separate, API admin e matrice misurata a quattro
-  modalità.
-- La Milestone 6 aggiunge vector exact/top-k CPU, layout colonnare, scheduler a
-  costo limitato, backend wgpu opzionale, cache VRAM ricostruibile, fallback e
-  metriche.
-- La Milestone 7 aggiunge backup/restore verificato, verify e repair su copia,
-  TLS/mTLS, cifratura at-rest e rekey copy-only, audit Durable, quote tenant e
-  disco, strumenti operativi e import one-shot 0.1. Le funzioni 1.x restano
-  sperimentali e non equivalgono a una release production-ready.
+- The root CLI and API remain the single-process 0.1 prototype.
+- `aprodb::v1` exposes the Milestone 1 vertical slice: Fjall storage,
+  versioned logical types and formats, exclusive locking, atomic change log,
+  Durable/Relaxed modes, Put/Get/Delete/CAS/AtomicBatch, logical checkpoints,
+  retention, and recovery.
+- Milestone 2 adds a central daemon, bounded Protobuf protocol, TCP and named
+  pipe/Unix socket transports, async/blocking Rust clients, data/admin
+  authentication, backpressure, metrics, and an administrative CLI.
+- Milestone 3 adds an enforced memory budget, separate bounded caches, indexed
+  TTL, persistent radial descriptors and policies, logical storage classes,
+  and `ExplainPlacement`. Fjall does not expose physical tiering.
+- Milestone 4 adds persistent idempotency, at-least-once workflows with leases
+  and fencing, a paginated change stream, and incremental, generational,
+  rebuildable work/read surfaces. Protocol, client, and TCP tests cover the
+  complete vertical slice.
+- Milestone 5 adds adaptive canonical Raw/Zstandard frames by tier,
+  content-type skipping, bounded pools/scratch space, versioned validated
+  dictionaries, separate compressed/decompressed caches, an admin API, and a
+  measured four-mode matrix.
+- Milestone 6 adds exact/top-k CPU vector operations, columnar layouts, a
+  bounded cost scheduler, an optional wgpu backend, rebuildable VRAM cache,
+  fallback, and metrics.
+- Milestone 7 adds verified backup/restore, verify and copy-based repair,
+  TLS/mTLS, at-rest encryption and copy-only rekey, Durable audit records,
+  tenant and disk quotas, operational tools, and one-shot 0.1 import. The 1.x
+  features remain experimental and do not amount to a production-ready release.
 
-## Avvio rapido del prototipo 0.1
+## Quick start: 0.1 prototype
 
 ```powershell
 cargo build --release
-cargo run --release -- put saluto "ciao mondo"
-cargo run --release -- get saluto
-cargo run --release -- put vettore "1,0,0" --kind vector
+cargo run --release -- put greeting "hello world"
+cargo run --release -- get greeting
+cargo run --release -- put vector "1,0,0" --kind vector
 cargo run --release -- vector-search "0.9,0.1,0" --backend auto
 cargo run --release -- stats
 ```
 
-Demo/mini-benchmark con dati vettoriali:
+Demo/microbenchmark with vector data:
 
 ```powershell
 cargo run --release -- --relaxed demo --items 10000 --dimension 128 --backend auto
 cargo bench --bench throughput
 ```
 
-Solo CPU:
+CPU only:
 
 ```powershell
 cargo build --release --no-default-features
 ```
 
-## Avvio rapido del server 1.x sperimentale
+## Quick start: experimental 1.x server
 
-Imposta due token distinti di almeno 16 byte senza passarli nella riga di
-comando, quindi avvia il daemon:
+Set two different tokens of at least 16 bytes, without placing them on the command line, then start the daemon:
 
 ```powershell
-$env:APRODB_DATA_TOKEN = "sostituire-token-data"
-$env:APRODB_ADMIN_TOKEN = "sostituire-token-admin"
+$env:APRODB_DATA_TOKEN = "replace-data-token"
+$env:APRODB_ADMIN_TOKEN = "replace-admin-token"
 cargo run -p aprodb-server -- --data-dir .\aprodb-data --backup-root .\aprodb-backups
 ```
 
-Da un secondo terminale con il solo token amministrativo:
+From a second terminal with only the administrative token:
 
 ```powershell
-$env:APRODB_ADMIN_TOKEN = "sostituire-token-admin"
+$env:APRODB_ADMIN_TOKEN = "replace-admin-token"
 cargo run -p aprodb-cli -- health
 cargo run -p aprodb-cli -- stats
 cargo run -p aprodb-cli -- cache-stats
@@ -124,16 +124,9 @@ cargo run -p aprodb-cli -- build-surface pending-work 4096
 cargo run -p aprodb-cli -- shutdown
 ```
 
-Gli endpoint predefiniti sono `127.0.0.1:7643` per i dati e
-`127.0.0.1:7644` per l'amministrazione. L'API dati 1.x è esposta dal crate
-`aprodb-client`; configurazione, semantica e limiti sono nel manuale.
-Il server usa wgpu con le feature predefinite e resta CPU-completo con
-`cargo run -p aprodb-server --no-default-features -- --data-dir .\aprodb-data`.
-Per abilitare backup online serve `--backup-root`; TLS usa
-`--tls-cert`/`--tls-key` e l'eventuale `--tls-client-ca`. Keyring, quote e limiti
-disco sono file/opzioni espliciti descritti nel manuale.
+The default endpoints are `127.0.0.1:7643` for data and `127.0.0.1:7644` for administration. The 1.x data API is exposed by the `aprodb-client` crate; configuration, semantics, and limits are documented in the manual. With default features the server uses wgpu, while remaining CPU-only with `cargo run -p aprodb-server --no-default-features -- --data-dir .\aprodb-data`. Online backup requires `--backup-root`; TLS uses `--tls-cert`/`--tls-key` and the optional `--tls-client-ca`. Keyrings, quotas, and disk limits are explicit files/options described in the manual.
 
-Le operazioni che devono mantenere intatta la sorgente sono offline e copy-only:
+Operations that must leave the source unchanged are offline and copy-only:
 
 ```powershell
 cargo run -p aprodb-cli --bin aprodb-ops -- verify .\aprodb-data
@@ -142,56 +135,32 @@ cargo run -p aprodb-cli --bin aprodb-ops -- restore .\backups\daily-001 .\restor
 cargo run -p aprodb-cli --bin aprodb-ops -- import-0.1 .\legacy .\legacy-copy .\aprodb-1 tenant namespace collection partition
 ```
 
-## Cosa implementa il prototipo 0.1
+A bounded PostgreSQL-to-AProDB validation importer is also available in public beta. It publishes a new data directory only after a complete stream and two successful verification passes. Read its [scope, safety model, mapping, and limitations](docs/postgresql-import.md) before using it against a live server.
 
-- working set in RAM suddiviso in shard concorrenti;
-- WAL append-only con CRC32, sequenze e recupero di code incomplete;
-- snapshot consistenti;
-- compressione adattiva Zstandard su RAM, WAL e snapshot, parallelizzata per canale;
-- operazioni e scansioni batch con Rayon;
-- valori bytes, testo, `i64`, `f64` e vettori `f32`;
-- dot product e cosine similarity con shader WGSL via `wgpu`;
-- selezione automatica CPU/GPU e fallback sicuro;
-- API Rust, CLI JSON e test end-to-end.
+## What the 0.1 prototype implements
 
-Consulta [manual.md](manual.md) per il manuale e [diary.md](diary.md) per le decisioni implementative.
+- an in-memory working set split into concurrent shards;
+- an append-only WAL with CRC32, sequences, and truncated-tail recovery;
+- consistent snapshots;
+- adaptive Zstandard compression for RAM, WAL, and snapshots, parallelized by channel;
+- Rayon batch operations and scans;
+- byte, text, `i64`, `f64`, and `f32` vector values;
+- dot product and cosine similarity through WGSL shaders and `wgpu`;
+- automatic CPU/GPU selection and safe fallback;
+- Rust API, JSON CLI, and end-to-end tests.
 
-## Licenze, autore e contributi
+See [manual.md](manual.md) for the manual and [diary.md](diary.md) for implementation decisions.
 
-AProDB è stato concepito e avviato da **Andrea Provenzali**
-([ORCID 0009-0009-9677-9840](https://orcid.org/0009-0009-9677-9840),
-[@provenzali](https://github.com/provenzali)). Copyright © 2026 Andrea
-Provenzali e contributori AProDB.
+## Licenses, author, and contributions
 
-Il core del database, il server, storage, engine, compute, CLI e facade sono
-distribuiti sotto **GNU AGPL-3.0-only**. Il client Rust, il protocollo e i tipi
-pubblici d'integrazione sono distribuiti separatamente sotto **Apache-2.0**.
-Questa separazione permette di collegare applicazioni con licenze differenti
-senza offrire il core sotto una licenza permissiva. La mappa normativa completa
-è in [LICENSING.md](LICENSING.md); origine e citazione sono in [NOTICE](NOTICE),
-[AUTHORS.md](AUTHORS.md) e [CITATION.cff](CITATION.cff).
-Le licenze dichiarate dalle dipendenze bloccate sono inventariate in
-[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+AProDB was conceived and initiated by **Andrea Provenzali** ([ORCID 0009-0009-9677-9840](https://orcid.org/0009-0009-9677-9840), [@provenzali](https://github.com/provenzali)). Copyright © 2026 Andrea Provenzali and AProDB contributors.
 
-OpenAI Codex è stato usato come assistente di sviluppo sotto direzione e
-revisione umana. Questa informazione non cambia paternità o licenze; dettagli e
-valutazione corrente dell'EU AI Act sono in
-[AI_ASSISTANCE.md](AI_ASSISTANCE.md).
+The database core, server, storage, engine, compute layer, CLI, and facade are distributed under **GNU AGPL-3.0-only**. The Rust client, protocol, and public integration types are distributed separately under **Apache-2.0**. This split allows applications under different licenses to connect without making the core permissively licensed. The complete normative map is in [LICENSING.md](LICENSING.md); provenance and citation are in [NOTICE](NOTICE), [AUTHORS.md](AUTHORS.md), and [CITATION.cff](CITATION.cff). Licenses declared by locked dependencies are inventoried in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
-Per contribuire consulta [CONTRIBUTING.md](CONTRIBUTING.md). Le vulnerabilità
-devono essere segnalate privatamente secondo [SECURITY.md](SECURITY.md).
+OpenAI Codex was used as a development assistant under human direction and review. This does not change authorship or licensing; details and the current EU AI Act assessment are in [AI_ASSISTANCE.md](AI_ASSISTANCE.md).
 
-## Confini attuali
+See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute. Report vulnerabilities privately according to [SECURITY.md](SECURITY.md).
 
-La versione 0.1 è single-node/single-process e non offre SQL, rete, replica,
-transazioni multi-chiave o autenticazione. Il percorso 1.x è anch'esso
-sperimentale e non va considerato production-ready: il tiering fisico,
-ANN e gli altri operatori GPU, KMS, restore online, RBAC fine-grained, metric
-exporter e replica sono ancora aperti. Backup/restore, TLS, cifratura at-rest e
-audit sono implementati ma richiedono audit operativo e test periodici prima di
-un uso production. La compressione 1.x è implementata ma il tuning production e il garbage
-collection dei dizionari restano aperti. Le superfici attuali supportano una sorgente, filtro
-per stato workflow e output record/JSON; trasformazioni dichiarative più ampie
-non sono ancora disponibili. Lo stato
-requisito per requisito è in
-[docs/requirements-matrix.md](docs/requirements-matrix.md).
+## Current boundaries
+
+Version 0.1 is single-node/single-process and does not provide SQL, networking, replication, multi-key transactions, or authentication. The 1.x path is also experimental and must not be treated as production-ready: physical tiering, ANN and other GPU operators, KMS, online restore, fine-grained RBAC, a metrics exporter, and replication remain open. Backup/restore, TLS, at-rest encryption, and auditing are implemented but require an operational audit and periodic testing before production use. The 1.x compression path is implemented, but production tuning and dictionary garbage collection remain open. Current surfaces support one source, workflow-state filters, and record/JSON output; broader declarative transformations are not yet available. Requirement-level status is tracked in [docs/requirements-matrix.md](docs/requirements-matrix.md).

@@ -8,29 +8,29 @@ const MAX_LOGICAL_FRAME_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AproError {
-    #[error("input non valido: {0}")]
+    #[error("invalid input: {0}")]
     InvalidInput(String),
-    #[error("limite di risorse superato: {0}")]
+    #[error("resource limit exceeded: {0}")]
     ResourceLimit(String),
-    #[error("conflitto di versione: {0}")]
+    #[error("version conflict: {0}")]
     Conflict(String),
-    #[error("dati persistenti corrotti: {0}")]
+    #[error("persistent data corrupted: {0}")]
     Corrupt(String),
-    #[error("formato non compatibile: {0}")]
+    #[error("incompatible format: {0}")]
     IncompatibleFormat(String),
     #[error("storage: {0}")]
     Storage(String),
-    #[error("directory dati già in uso: {0}")]
+    #[error("data directory already in use: {0}")]
     DataDirectoryLocked(String),
     #[error("backpressure: {0}")]
     Backpressure(String),
-    #[error("gap nel change log: {0}")]
+    #[error("gap in change log: {0}")]
     ChangeLogGap(String),
-    #[error("operazione non supportata: {0}")]
+    #[error("operation not supported: {0}")]
     Unsupported(String),
     #[error("compute: {0}")]
     Compute(String),
-    #[error("cifratura: {0}")]
+    #[error("encryption: {0}")]
     Encryption(String),
 }
 
@@ -140,25 +140,23 @@ impl RecordIdentity {
             ("key", &self.key),
         ] {
             if component.is_empty() {
-                return Err(AproError::InvalidInput(format!(
-                    "{name} non può essere vuoto"
-                )));
+                return Err(AproError::InvalidInput(format!("{name} cannot be empty")));
             }
             if component.len() > limits.max_key_component_bytes {
                 return Err(AproError::ResourceLimit(format!(
-                    "{name} supera {} byte",
+                    "{name} exceeds {} bytes",
                     limits.max_key_component_bytes
                 )));
             }
             if component.len() > u16::MAX as usize {
                 return Err(AproError::ResourceLimit(format!(
-                    "{name} supera il formato logico"
+                    "{name} exceeds logical format"
                 )));
             }
         }
         if self.storage_key().len() > limits.max_storage_key_bytes {
             return Err(AproError::ResourceLimit(format!(
-                "identità serializzata supera {} byte",
+                "serialized identity exceeds {} byte",
                 limits.max_storage_key_bytes
             )));
         }
@@ -289,22 +287,22 @@ pub enum Payload {
 impl Payload {
     pub fn validate(&self) -> Result<()> {
         match self {
-            Self::Float(value) if !value.is_finite() => Err(AproError::InvalidInput(
-                "il float deve essere finito".into(),
-            )),
-            Self::Vector(values) if values.is_empty() => Err(AproError::InvalidInput(
-                "il vettore non può essere vuoto".into(),
-            )),
+            Self::Float(value) if !value.is_finite() => {
+                Err(AproError::InvalidInput("float must be finite".into()))
+            }
+            Self::Vector(values) if values.is_empty() => {
+                Err(AproError::InvalidInput("vector cannot be empty".into()))
+            }
             Self::Vector(values) if values.iter().any(|value| !value.is_finite()) => Err(
-                AproError::InvalidInput("il vettore deve contenere solo float finiti".into()),
+                AproError::InvalidInput("vector must contain only finite floats".into()),
             ),
             Self::Document {
                 schema_version: 0, ..
             } => Err(AproError::InvalidInput(
-                "la versione dello schema deve essere positiva".into(),
+                "schema version must be positive".into(),
             )),
             Self::BlobRef { id, .. } if id.is_empty() => {
-                Err(AproError::InvalidInput("blob id vuoto".into()))
+                Err(AproError::InvalidInput("empty blob id".into()))
             }
             _ => Ok(()),
         }
@@ -517,7 +515,7 @@ impl RecordEnvelope {
         self.identity.validate(limits)?;
         if self.tombstone != self.payload.is_none() {
             return Err(AproError::InvalidInput(
-                "tombstone e presenza payload non coincidono".into(),
+                "tombstone and payload presence mismatch".into(),
             ));
         }
         if let Some(payload) = &self.payload {
@@ -530,13 +528,13 @@ impl RecordEnvelope {
             .sum::<usize>();
         if metadata_bytes > limits.max_metadata_bytes {
             return Err(AproError::ResourceLimit(format!(
-                "metadata supera {} byte",
+                "metadata exceeds {} byte",
                 limits.max_metadata_bytes
             )));
         }
         if self.workflow.state.is_empty() || self.workflow.state.len() > 255 {
             return Err(AproError::InvalidInput(
-                "stato workflow deve contenere 1..255 byte".into(),
+                "workflow state must contain 1..255 bytes".into(),
             ));
         }
         if self.workflow.state == "leased" {
@@ -545,13 +543,13 @@ impl RecordEnvelope {
                 || self.workflow.fencing_token == 0
             {
                 return Err(AproError::InvalidInput(
-                    "stato leased richiede lease id, fencing token e deadline".into(),
+                    "leased state requires lease id, fencing token, and deadline".into(),
                 ));
             }
         } else if self.workflow.lease_id.is_some() || self.workflow.lease_deadline_unix_ms.is_some()
         {
             return Err(AproError::InvalidInput(
-                "uno stato non leased non può conservare un lease attivo".into(),
+                "a non-leased state cannot hold an active lease".into(),
             ));
         }
         Ok(())
@@ -978,11 +976,11 @@ pub fn encode_logical<T: Serialize>(kind: LogicalFrameKind, value: &T) -> Result
         .map_err(|error| AproError::InvalidInput(format!("codifica logica: {error}")))?;
     if payload.len() > MAX_LOGICAL_FRAME_BYTES {
         return Err(AproError::ResourceLimit(format!(
-            "frame logico supera {MAX_LOGICAL_FRAME_BYTES} byte"
+            "logical frame exceeds {MAX_LOGICAL_FRAME_BYTES} byte"
         )));
     }
     let payload_len = u32::try_from(payload.len())
-        .map_err(|_| AproError::ResourceLimit("frame logico oltre 4 GiB".into()))?;
+        .map_err(|_| AproError::ResourceLimit("logical frame over 4 GiB".into()))?;
     let mut output = Vec::with_capacity(FRAME_HEADER_LEN + payload.len());
     output.extend_from_slice(&kind.magic());
     output.push(LOGICAL_FORMAT_VERSION);
@@ -994,45 +992,41 @@ pub fn encode_logical<T: Serialize>(kind: LogicalFrameKind, value: &T) -> Result
 
 pub fn decode_logical<T: DeserializeOwned>(kind: LogicalFrameKind, bytes: &[u8]) -> Result<T> {
     if bytes.len() < FRAME_HEADER_LEN {
-        return Err(AproError::Corrupt("frame logico incompleto".into()));
+        return Err(AproError::Corrupt("logical frame incomplete".into()));
     }
     if bytes[..4] != kind.magic() {
-        return Err(AproError::Corrupt(
-            "magic del frame logico non valido".into(),
-        ));
+        return Err(AproError::Corrupt("logical frame magic invalid".into()));
     }
     if bytes[4] != LOGICAL_FORMAT_VERSION {
         return Err(AproError::IncompatibleFormat(format!(
-            "versione logica {} non supportata",
+            "logical version {} not supported",
             bytes[4]
         )));
     }
     let payload_len = u32::from_le_bytes(
         bytes[5..9]
             .try_into()
-            .map_err(|_| AproError::Corrupt("lunghezza logica incompleta".into()))?,
+            .map_err(|_| AproError::Corrupt("logical length incomplete".into()))?,
     ) as usize;
     if payload_len > MAX_LOGICAL_FRAME_BYTES || bytes.len() != FRAME_HEADER_LEN + payload_len {
         return Err(AproError::Corrupt(
-            "lunghezza del frame logico incoerente".into(),
+            "logical frame length inconsistent".into(),
         ));
     }
     let checksum = u32::from_le_bytes(
         bytes[9..13]
             .try_into()
-            .map_err(|_| AproError::Corrupt("checksum logico incompleto".into()))?,
+            .map_err(|_| AproError::Corrupt("logical checksum incomplete".into()))?,
     );
     let payload = &bytes[FRAME_HEADER_LEN..];
     if crc32fast::hash(payload) != checksum {
-        return Err(AproError::Corrupt(
-            "checksum del frame logico non valido".into(),
-        ));
+        return Err(AproError::Corrupt("logical frame checksum invalid".into()));
     }
     let (value, consumed) = bincode::serde::decode_from_slice(payload, bincode::config::standard())
-        .map_err(|error| AproError::Corrupt(format!("decodifica logica: {error}")))?;
+        .map_err(|error| AproError::Corrupt(format!("logical decoding: {error}")))?;
     if consumed != payload.len() {
         return Err(AproError::Corrupt(
-            "byte residui dopo il frame logico".into(),
+            "leftover bytes after logical frame".into(),
         ));
     }
     Ok(value)
@@ -1080,7 +1074,7 @@ mod tests {
         };
         let record = RecordEnvelope {
             identity: identity.clone(),
-            payload: Some(Payload::Text("ciao".into())),
+            payload: Some(Payload::Text("hello".into())),
             content_type: "text/plain".into(),
             version,
             created_at_unix_ms: 10,

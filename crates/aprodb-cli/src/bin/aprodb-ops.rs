@@ -9,7 +9,7 @@ use aprodb::{LegacyImportOptions, import_0_1};
 use aprodb_engine::{EncryptionConfig, Engine, EngineConfig, REPAIR_DERIVED_CONFIRMATION};
 use serde::Deserialize;
 
-const USAGE: &str = "uso:\n  aprodb-ops verify DATA [--keyring FILE]\n  aprodb-ops verify-backup BACKUP\n  aprodb-ops restore BACKUP DEST [--keyring FILE]\n  aprodb-ops repair SOURCE DEST REBUILD_DERIVED_ON_SEPARATE_COPY [--keyring FILE]\n  aprodb-ops rekey SOURCE DEST --destination-keyring FILE [--source-keyring FILE]\n  aprodb-ops import-0.1 SOURCE PRESERVED DEST TENANT NAMESPACE COLLECTION PARTITION [--destination-keyring FILE] [--max-records N] [--max-stored-bytes N] [--max-source-bytes N] [--batch-operations N]";
+const USAGE: &str = "usage:\n  aprodb-ops verify DATA [--keyring FILE]\n  aprodb-ops verify-backup BACKUP\n  aprodb-ops restore BACKUP DEST [--keyring FILE]\n  aprodb-ops repair SOURCE DEST REBUILD_DERIVED_ON_SEPARATE_COPY [--keyring FILE]\n  aprodb-ops rekey SOURCE DEST --destination-keyring FILE [--source-keyring FILE]\n  aprodb-ops import-0.1 SOURCE PRESERVED DEST TENANT NAMESPACE COLLECTION PARTITION [--destination-keyring FILE] [--max-records N] [--max-stored-bytes N] [--max-source-bytes N] [--batch-operations N]";
 
 fn main() -> ExitCode {
     match run(env::args().skip(1).collect()) {
@@ -53,7 +53,7 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
             let confirmation = required(&mut arguments, "CONFIRMATION")?;
             if confirmation != REPAIR_DERIVED_CONFIRMATION {
                 return Err(format!(
-                    "repair richiede conferma esatta {REPAIR_DERIVED_CONFIRMATION}"
+                    "repair requires exact confirmation {REPAIR_DERIVED_CONFIRMATION}"
                 ));
             }
             let flags = flags(arguments, &["--keyring"])?;
@@ -71,7 +71,7 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
             let flags = flags(arguments, &["--source-keyring", "--destination-keyring"])?;
             let destination_keyring = flags
                 .get("--destination-keyring")
-                .ok_or("--destination-keyring è obbligatorio")?;
+                .ok_or("--destination-keyring is required")?;
             let engine = Engine::open(engine_config(source, flags.get("--source-keyring"))?)
                 .map_err(|error| error.to_string())?;
             print_json(
@@ -127,14 +127,14 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
             )
         }
         "--help" | "-h" => Err(USAGE.into()),
-        _ => Err(format!("comando sconosciuto: {command}\n{USAGE}")),
+        _ => Err(format!("unknown command: {command}\n{USAGE}")),
     }
 }
 
 fn required(arguments: &mut VecDeque<String>, name: &str) -> Result<String, String> {
     arguments
         .pop_front()
-        .ok_or_else(|| format!("argomento {name} assente"))
+        .ok_or_else(|| format!("missing argument {name}"))
 }
 
 fn required_path(arguments: &mut VecDeque<String>, name: &str) -> Result<PathBuf, String> {
@@ -145,7 +145,7 @@ fn ensure_empty(arguments: VecDeque<String>) -> Result<(), String> {
     if arguments.is_empty() {
         Ok(())
     } else {
-        Err(format!("argomento inatteso: {}", arguments[0]))
+        Err(format!("unexpected argument: {}", arguments[0]))
     }
 }
 
@@ -156,11 +156,11 @@ fn flags(
     let mut parsed = BTreeMap::new();
     while let Some(name) = arguments.pop_front() {
         if !allowed.contains(&name.as_str()) {
-            return Err(format!("opzione sconosciuta: {name}"));
+            return Err(format!("unknown option: {name}"));
         }
-        let value = required(&mut arguments, &format!("valore di {name}"))?;
+        let value = required(&mut arguments, &format!("value for {name}"))?;
         if parsed.insert(name.clone(), value).is_some() {
-            return Err(format!("opzione duplicata: {name}"));
+            return Err(format!("duplicate option: {name}"));
         }
     }
     Ok(parsed)
@@ -171,7 +171,7 @@ where
     T: std::str::FromStr,
 {
     flags.get(name).map_or(Ok(default), |value| {
-        value.parse().map_err(|_| format!("{name} non valido"))
+        value.parse().map_err(|_| format!("invalid {name}"))
     })
 }
 
@@ -192,31 +192,31 @@ struct KeyringFile {
 
 fn load_keyring(path: &Path) -> Result<EncryptionConfig, String> {
     let metadata =
-        fs::symlink_metadata(path).map_err(|error| format!("metadati keyring: {error}"))?;
+        fs::symlink_metadata(path).map_err(|error| format!("keyring metadata error: {error}"))?;
     if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > 64 * 1024 {
-        return Err("keyring deve essere un file regolare entro 64 KiB".into());
+        return Err("keyring must be a regular file within 64 KiB".into());
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         if metadata.permissions().mode() & 0o077 != 0 {
-            return Err("keyring deve essere accessibile solo dal proprietario".into());
+            return Err("keyring must be accessible only by the owner".into());
         }
     }
-    let bytes = fs::read(path).map_err(|error| format!("lettura keyring: {error}"))?;
+    let bytes = fs::read(path).map_err(|error| format!("keyring read error: {error}"))?;
     if bytes.len() > 64 * 1024 {
-        return Err("keyring cresciuto oltre 64 KiB durante la lettura".into());
+        return Err("keyring grew beyond 64 KiB while reading".into());
     }
     let file: KeyringFile =
-        serde_json::from_slice(&bytes).map_err(|error| format!("keyring JSON: {error}"))?;
+        serde_json::from_slice(&bytes).map_err(|error| format!("keyring JSON error: {error}"))?;
     let mut keys = BTreeMap::new();
     for (id, encoded) in file.keys {
         if encoded.len() != 64 {
-            return Err(format!("chiave {id} non contiene 32 byte hex"));
+            return Err(format!("key {id} does not contain 32 hex bytes"));
         }
         let mut key = [0u8; 32];
         hex::decode_to_slice(encoded.as_bytes(), &mut key)
-            .map_err(|_| format!("chiave {id} non è hex valida"))?;
+            .map_err(|_| format!("key {id} is not valid hex"))?;
         keys.insert(id, key);
     }
     EncryptionConfig::new(file.active_key_id, keys).map_err(|error| error.to_string())

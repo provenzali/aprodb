@@ -29,7 +29,7 @@ pub(crate) fn write_frame(mut writer: impl Write, record: &Record) -> Result<usi
     let payload = encode_record(record)?;
     if payload.len() > MAX_FRAME_SIZE {
         return Err(AproError::InvalidValue(format!(
-            "record oltre il limite di {MAX_FRAME_SIZE} byte"
+            "record exceeds the {MAX_FRAME_SIZE}-byte limit"
         )));
     }
     let mut header = [0u8; HEADER_LEN];
@@ -53,12 +53,12 @@ pub(crate) fn read_frame(mut reader: impl Read) -> Result<FrameRead> {
     }
 
     if header[..4] != FRAME_MAGIC {
-        return Err(AproError::Corrupt("magic del frame non valido".into()));
+        return Err(AproError::Corrupt("invalid frame magic".into()));
     }
     let payload_len = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
     if payload_len == 0 || payload_len > MAX_FRAME_SIZE {
         return Err(AproError::Corrupt(format!(
-            "lunghezza frame non valida: {payload_len}"
+            "invalid frame length: {payload_len}"
         )));
     }
     let checksum = u32::from_le_bytes(header[8..12].try_into().unwrap());
@@ -71,7 +71,7 @@ pub(crate) fn read_frame(mut reader: impl Read) -> Result<FrameRead> {
         }
     }
     if crc32fast::hash(&payload) != checksum {
-        return Err(AproError::Corrupt("checksum del frame non valido".into()));
+        return Err(AproError::Corrupt("invalid frame checksum".into()));
     }
     Ok(FrameRead::Record(decode_record(&payload)?))
 }
@@ -81,7 +81,7 @@ fn encode_record(record: &Record) -> Result<Vec<u8>> {
     let key_len: u32 = key
         .len()
         .try_into()
-        .map_err(|_| AproError::InvalidKey("chiave troppo lunga".into()))?;
+        .map_err(|_| AproError::InvalidKey("key too long".into()))?;
     let (kind, value) = match &record.operation {
         Operation::Put(value) => (1u8, value.encode()),
         Operation::Delete => (2u8, Vec::new()),
@@ -89,7 +89,7 @@ fn encode_record(record: &Record) -> Result<Vec<u8>> {
     let value_len: u32 = value
         .len()
         .try_into()
-        .map_err(|_| AproError::InvalidValue("valore troppo grande".into()))?;
+        .map_err(|_| AproError::InvalidValue("value too large".into()))?;
 
     let mut out = Vec::with_capacity(17 + key.len() + value.len());
     out.extend_from_slice(&record.sequence.to_le_bytes());
@@ -103,7 +103,7 @@ fn encode_record(record: &Record) -> Result<Vec<u8>> {
 
 fn decode_record(payload: &[u8]) -> Result<Record> {
     if payload.len() < 17 {
-        return Err(AproError::Corrupt("record incompleto".into()));
+        return Err(AproError::Corrupt("incomplete record".into()));
     }
     let sequence = u64::from_le_bytes(payload[..8].try_into().unwrap());
     let kind = payload[8];
@@ -112,21 +112,23 @@ fn decode_record(payload: &[u8]) -> Result<Record> {
     let expected = 17usize
         .checked_add(key_len)
         .and_then(|n| n.checked_add(value_len))
-        .ok_or_else(|| AproError::Corrupt("lunghezza record eccessiva".into()))?;
+        .ok_or_else(|| AproError::Corrupt("excessive record length".into()))?;
     if payload.len() != expected {
-        return Err(AproError::Corrupt("lunghezza record incoerente".into()));
+        return Err(AproError::Corrupt("inconsistent record length".into()));
     }
     let key = String::from_utf8(payload[17..17 + key_len].to_vec())
-        .map_err(|_| AproError::Corrupt("chiave UTF-8 non valida".into()))?;
+        .map_err(|_| AproError::Corrupt("invalid UTF-8 key".into()))?;
     let value_bytes = &payload[17 + key_len..];
     let operation = match kind {
         1 => Operation::Put(StoredValue::decode(value_bytes)?),
         2 if value_bytes.is_empty() => Operation::Delete,
-        2 => return Err(AproError::Corrupt("delete con payload inatteso".into())),
+        2 => {
+            return Err(AproError::Corrupt(
+                "delete operation with unexpected payload".into(),
+            ));
+        }
         _ => {
-            return Err(AproError::Corrupt(format!(
-                "operazione sconosciuta: {kind}"
-            )));
+            return Err(AproError::Corrupt(format!("unknown operation: {kind}")));
         }
     };
     Ok(Record {
@@ -144,7 +146,7 @@ mod tests {
     #[test]
     fn v0_1_put_frame_matches_golden_bytes() {
         let mut compression = CompressionChannel::new(1, 32).unwrap();
-        let stored = compression.compress(&Value::Text("ciao".into())).unwrap();
+        let stored = compression.compress(&Value::Text("hello".into())).unwrap();
         let record = Record {
             sequence: 7,
             key: "key".into(),
@@ -161,7 +163,7 @@ mod tests {
                 assert_eq!(decoded.key, "key");
                 assert!(matches!(decoded.operation, Operation::Put(_)));
             }
-            FrameRead::Eof | FrameRead::Truncated => panic!("frame golden non leggibile"),
+            FrameRead::Eof | FrameRead::Truncated => panic!("golden frame not readable"),
         }
     }
 }

@@ -1,37 +1,26 @@
-# Spike storage Fjall 3.1.8
+# Fjall 3.1.8 storage spike
 
-Questo laboratorio copre i criteri quantitativi della Milestone 0.5. Non è un
-benchmark competitivo e non misura il protocollo client/server.
+This laboratory covers the quantitative criteria of Milestone 0.5. It is not a competitive benchmark and does not measure the client/server protocol.
 
-## Esecuzione
+## Execution
 
 ```powershell
 cargo run --release -p aprodb-storage --example fjall_spike
 ```
 
-Il programma crea directory temporanee indipendenti per otto workload: quattro
-policy di compressione (`aprodb_zstd_only`, `backend_lz4_only`, `both`, `none`)
-su payload comprimibili e pseudo-casuali. Ogni workload scrive 2.000 record,
-esegue due versioni per record in batch da 100 e usa `SyncAll` per ogni batch.
+The program creates independent temporary directories for eight workloads: four compression policies
+(`aprodb_zstd_only`, `backend_lz4_only`, `both`, `none`) on compressible and pseudo-random payloads.
+Each workload writes 2,000 records, executes two versions per record in batches of 100 and uses
+`SyncAll` for each batch.
 
-Ogni mutazione scrive una versione immutabile, un head, un evento minimale con
-riferimento alla versione e il watermark di catalogo. Al termine forza flush e
-major compaction tramite l'API Fjall, riapre il database e verifica un campione
-di versioni esatte.
+Each mutation writes an immutable version, a head, a minimal event with reference to the version, and the catalog watermark. At the end, it forces flush and major compaction via the Fjall API, reopens the database, and verifies a sample of exact versions.
 
-## Metriche e limiti
+## Metrics and limits
 
-- Le latenze Durable sono p50/p95/p99 dei 40 batch; il throughput conta le
-  mutazioni, non le singole operazioni fisiche.
-- `process_io_written_bytes` proviene dai contatori del processo. Su Windows
-  include tutto l'I/O del processo: è un proxy comparativo dell'amplificazione,
-  non un contatore di byte fisici attribuito nativamente da Fjall.
-- `submitted_storage_bytes` è la somma di chiavi e valori consegnati al backend;
-  il rapporto I/O usa questo valore come denominatore.
-- Il costo `minimal_event_bytes` è un limite inferiore sintetico. I frame logici
-  completi AProDB includono anche identità, sequence, batch id e checksum.
-- Un singolo run locale non è sufficiente per regressioni o affermazioni di
-  superiorità. La Milestone 5 aggiungerà ripetizioni, warm-up e policy per tier.
+- Durable latencies are p50/p95/p99 of the 40 batches; throughput counts mutations, not individual physical operations.
+- `process_io_written_bytes` comes from process counters. On Windows, this includes all process I/O: it is a comparative proxy of amplification, not a physical byte counter natively attributed by Fjall.
+- `submitted_storage_bytes` is the sum of keys and values delivered to the backend; the I/O ratio uses this value as the denominator.
+- The `minimal_event_bytes` cost is a synthetic lower bound. Full AProDB logical frames also include identity, sequence, batch ID, and checksum.
+- A single local run is insufficient for regressions or claims of superiority. The Milestone 5 benchmark adds repetitions, warm-up, and tier policy.
 
-I risultati verificati sono in [RESULTS.md](RESULTS.md). La decisione è
-registrata in [ADR-0001](../../docs/adr/0001-fjall-backend.md).
+The verified results are in [RESULTS.md](RESULTS.md). The decision is recorded in [ADR-0001](../../docs/adr/0001-fjall-backend.md).

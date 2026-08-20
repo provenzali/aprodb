@@ -56,34 +56,30 @@ impl StoredValue {
 
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < STORED_HEADER_LEN {
-            return Err(AproError::Corrupt(
-                "header del valore memorizzato incompleto".into(),
-            ));
+            return Err(AproError::Corrupt("incomplete stored value header".into()));
         }
         if bytes[0] != STORED_FORMAT_VERSION {
             return Err(AproError::Corrupt(format!(
-                "versione del valore memorizzato non supportata: {}",
+                "unsupported stored value version: {}",
                 bytes[0]
             )));
         }
         let codec = bytes[1];
         if codec != CODEC_RAW && codec != CODEC_ZSTD {
             return Err(AproError::Corrupt(format!(
-                "codec di compressione sconosciuto: {codec}"
+                "unknown compression codec: {codec}"
             )));
         }
         let kind = ValueKind::from_tag(bytes[2])?;
         let logical_len = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
         if logical_len as usize > MAX_LOGICAL_BYTES {
             return Err(AproError::Corrupt(
-                "valore logico oltre il limite massimo".into(),
+                "logical value exceeds maximum allowed size".into(),
             ));
         }
         let payload: Arc<[u8]> = bytes[STORED_HEADER_LEN..].into();
         if codec == CODEC_RAW && payload.len() != logical_len as usize {
-            return Err(AproError::Corrupt(
-                "lunghezza del valore raw incoerente".into(),
-            ));
+            return Err(AproError::Corrupt("inconsistent raw value length".into()));
         }
         Ok(Self {
             codec,
@@ -113,7 +109,7 @@ impl ValueKind {
             4 => Ok(Self::Float),
             5 => Ok(Self::Vector),
             _ => Err(AproError::Corrupt(format!(
-                "tipo del valore memorizzato sconosciuto: {tag}"
+                "unknown stored value type: {tag}"
             ))),
         }
     }
@@ -142,13 +138,13 @@ impl CompressionChannel {
         let raw = value.encode();
         if raw.len() > MAX_LOGICAL_BYTES {
             return Err(AproError::InvalidValue(format!(
-                "valore oltre il limite di {MAX_LOGICAL_BYTES} byte"
+                "value exceeds the {MAX_LOGICAL_BYTES}-byte limit"
             )));
         }
         let logical_len: u32 = raw
             .len()
             .try_into()
-            .map_err(|_| AproError::InvalidValue("valore oltre 4 GiB".into()))?;
+            .map_err(|_| AproError::InvalidValue("value over 4 GiB".into()))?;
         let compressed = if raw.len() >= self.min_size {
             Some(
                 self.compressor
@@ -178,22 +174,22 @@ impl CompressionChannel {
             CODEC_ZSTD => self
                 .decompressor
                 .decompress(&stored.payload, stored.logical_len as usize)
-                .map_err(|error| AproError::Corrupt(format!("frame Zstd non valido: {error}")))?,
+                .map_err(|error| AproError::Corrupt(format!("invalid Zstd frame: {error}")))?,
             codec => {
                 return Err(AproError::Corrupt(format!(
-                    "codec di compressione sconosciuto: {codec}"
+                    "unknown compression codec: {codec}"
                 )));
             }
         };
         if bytes.len() != stored.logical_len as usize {
             return Err(AproError::Corrupt(
-                "lunghezza dopo decompressione incoerente".into(),
+                "inconsistent length after decompression".into(),
             ));
         }
         let value = Value::decode(&bytes)?;
         if ValueKind::of(&value) != stored.kind {
             return Err(AproError::Corrupt(
-                "tipo dichiarato e tipo decompresso non coincidono".into(),
+                "declared type does not match decompressed type".into(),
             ));
         }
         Ok(value)

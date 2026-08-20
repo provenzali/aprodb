@@ -1,67 +1,40 @@
-# ADR-0004 — Operabilità, sicurezza e migrazione copy-only
+# ADR-0004 — Operability, security, and copy-only migration
 
-- Stato: accettato per Milestone 7
-- Data: 19 agosto 2026
-- Ambito: nodo singolo AProDB 1.x
+- State: accepted for Milestone 7
+- Date: August 19, 2026
+- Scope: single-node AProDB 1.x
 
-## Contesto
+## Background
 
-Backup, repair, rotazione chiavi e import 0.1 non possono modificare
-irreversibilmente l'unica copia valida. TLS e cifratura at-rest devono usare
-librerie mature; audit e quote devono fallire prima dell'operazione protetta,
-senza registrare segreti o payload.
+Backup, repair, key rotation, and import 0.1 cannot irreversibly modify the only valid copy.
+TLS and at-rest encryption must use mature libraries; audit and quota checks must fail before the
+protected operation, without logging secrets or payloads.
 
-## Decisione
+## Decision
 
-- Il backup online crea un checkpoint logico coerente, lo riapre, esegue
-  `verify`, inventaria ogni file con BLAKE3 e pubblica il manifest solo dopo la
-  verifica. Restore ricontrolla manifest, checksum, key id, catalog generation e
-  watermark in una directory nuova.
-- `repair_derived_to_copy` richiede la conferma letterale
-  `REBUILD_DERIVED_ON_SEPARATE_COPY`, ricostruisce soltanto indici e superfici
-  derivati e non modifica la sorgente. Corruzione canonica o del catalogo
-  richiede restore.
-- Tutti i valori dei keyspace Fjall possono essere protetti con
-  XChaCha20-Poly1305. Nonce casuale, key id e AAD legano ciphertext, keyspace e
-  chiave storage. Le chiavi arrivano da un file JSON limitato e protetto; marker
-  e manifest contengono soltanto identificatori. La rotazione riscrive e
-  verifica una copia separata.
-- TCP remoto usa Rustls 0.23/Tokio-Rustls con server authentication e mTLS
-  opzionale. Plaintext non-loopback resta rifiutato salvo override esplicito;
-  named pipe e Unix socket restano trasporti locali.
-- Ogni mutazione admin supportata registra in batch Durable un evento
-  `Attempted` e un esito `Succeeded`/`Failed`. Il target è BLAKE3, non una chiave
-  o un payload in chiaro. L'audit è leggibile soltanto dall'endpoint admin.
-- Le quote tenant vengono ammesse prima del dispatch e limitano byte richiesta,
-  frequenza, inflight e lavoro vettoriale. Il motore applica inoltre quota dati,
-  riserva libera e stima temporanea di compaction; backup e restore verificano
-  lo spazio prima della copia.
-- AProDB 0.1 viene importato una sola volta e soltanto offline. I file originali
-  sono copiati e verificati in `raw`; un'altra copia può subire il repair della
-  coda WAL del reader 0.1. Il nuovo database nasce in una directory temporanea,
-  viene verificato e poi rinominato. La sorgente non viene aperta dal motore 1.x.
-- Non esistono upgrade in-place. Backup/restore, rekey e futuri cambi di formato
-  seguono sempre una procedura copy-and-verify con rollback tramite la copia
-  originale.
+- Online backup creates a coherent logical checkpoint, reopens it, runs `verify`, inventories each file using BLAKE3, and publishes the manifest only after verification. Restore rechecks manifest, checksum, key id, catalog generation, and watermark in a new directory.
+- `repair_derived_to_copy` requires the literal confirmation `REBUILD_DERIVED_ON_SEPARATE_COPY`, reconstructs only indexes and derived surfaces, and does not modify the source. Canonical or catalog corruption requires restore.
+- All Fjall keyspace values can be protected with XChaCha20-Poly1305. A random nonce, key id, and AAD bind the ciphertext, keyspace, and storage key. Keys come from a size-limited, access-protected JSON file; markers and manifests contain only identifiers. Key rotation rewrites and verifies a separate copy.
+- Remote TCP uses Rustls 0.23/Tokio-Rustls with server authentication and optional mTLS. Plaintext non-loopback remains rejected except with explicit override; named pipes and Unix sockets remain local transports.
+- Each supported admin mutation records an `Attempted` event and a `Succeeded`/`Failed` outcome in a Durable batch. The target identifier is a BLAKE3 hash, not a plaintext key or payload. The audit log is readable only from the admin endpoint.
+- Tenant quotas are checked before dispatch and limit request bytes, frequency, in-flight requests, and vectorized work. The engine also applies a data quota, free-space reserve, and temporary compaction estimate; backup and restore verify available space before copying.
+- AProDB 0.1 is imported only once and exclusively offline. Original files are copied and verified in `raw`; another copy may undergo repair of the 0.1 reader's WAL queue. The new database is created in a temporary directory, verified, then renamed. The source is not opened by the 1.x engine.
+- There are no in-place upgrades. Backup/restore, rekey, and future format changes always use a copy-and-verify procedure with rollback via the original copy.
 
-## Evidenze
+## Evidence
 
-I test coprono ciphertext/tamper/wrong key, backup/restore e inventario alterato,
-repair su copia, audit dopo riavvio, ruoli, quote, TLS/mTLS, keyring redatto,
-rekey e import 0.1 con hash sorgente invariato. Un gate lungo esegue 2.048
-scritture Durable cifrate, quattro cicli backup/restore e rekey; i pacchetti del
-workspace vengono estratti e ricompilati da `cargo package --workspace`.
+The tests cover ciphertext/tamper/wrong key, backup/restore and altered inventory, copy repair,
+audit after restart, roles, quotas, TLS/mTLS, redacted keyring, rekey, and import 0.1 with unchanged
+source hash.
+One long gate runs 2,048 encrypted Durable writes, four backup/restore cycles, and one rekey.
+`cargo package -p aprodb-types --allow-dirty` verifies the independently packageable base crate,
+and `cargo package --workspace --allow-dirty --no-verify` creates all workspace archives. Full
+workspace package verification is blocked until the interdependent internal crates are published.
 
-## Conseguenze e limiti
+## Consequences and limits
 
-- I nomi delle chiavi fisiche Fjall non sono occultati; vengono cifrati valori,
-  record, catalogo, change log, audit, superfici e dizionari. Non è un formato
-  volume-encryption né sostituisce BitLocker/LUKS.
-- Il keyring file non è un KMS e su Windows la protezione ACL resta compito
-  dell'operatore. Nessun segreto viene stampato o salvato nel manifest.
-- Le quote richieste/secondo usano finestre fisse in memoria e si azzerano al
-  riavvio. Non sono billing né isolamento distribuito.
-- Restore, repair, rekey e import sono operazioni offline; un risultato parziale
-  viene conservato per diagnosi e non cancellato automaticamente.
-- Il formato logico supportato dal writer è v1. Un formato futuro sconosciuto
-  viene rifiutato finché non esiste una migrazione copy-only verificata.
+- The names of Fjall physical keys are not hidden; values, records, catalog, change log, audit, surfaces, and dictionaries are encrypted. This is not a volume-encryption format and does not replace BitLocker/LUKS.
+- The keyring file is not a KMS, and on Windows, ACL protection remains the operator's responsibility. No secrets are printed or saved in the manifest.
+- Requests-per-second quotas use fixed in-memory windows and reset at restart. They do not serve for billing or distributed isolation.
+- Restore, repair, rekey, and import are offline operations; a partial result is kept for diagnosis and not automatically deleted.
+- The logical format supported by the writer is v1. Any unknown future format is rejected until a verified copy-only migration exists.

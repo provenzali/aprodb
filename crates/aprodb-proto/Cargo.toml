@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Andrea Provenzali"]
 license = "Apache-2.0"
 repository = "https://github.com/provenzali/aprodb"
-description = "Protocollo Protobuf versionato e frame limitati di AProDB"
+description = "Versioned Protobuf protocol and bounded frames for AProDB"
 
 [dependencies]
 aprodb-types = { path = "../aprodb-types", version = "0.1.0" }

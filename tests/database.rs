@@ -8,13 +8,13 @@ fn values_survive_reopen_and_delete() {
     let temp = tempdir().unwrap();
     {
         let db = Database::open(Config::new(temp.path())).unwrap();
-        db.put("text", Value::Text("ciao".into())).unwrap();
+        db.put("text", Value::Text("hello".into())).unwrap();
         db.put("number", Value::Integer(42)).unwrap();
         db.put("gone", Value::Bytes(vec![1, 2, 3])).unwrap();
         assert!(db.delete("gone").unwrap());
     }
     let db = Database::open(Config::new(temp.path())).unwrap();
-    assert_eq!(db.get("text").unwrap(), Some(Value::Text("ciao".into())));
+    assert_eq!(db.get("text").unwrap(), Some(Value::Text("hello".into())));
     assert_eq!(db.get("number").unwrap(), Some(Value::Integer(42)));
     assert_eq!(db.get("gone").unwrap(), None);
 }

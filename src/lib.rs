@@ -1,4 +1,4 @@
-//! AProDB: motore key-value tipizzato con WAL, sharding e ricerca vettoriale parallela.
+//! AProDB: typed key-value engine with WAL, sharding, and parallel vector search.
 
 mod compression;
 mod compute;
@@ -17,8 +17,8 @@ pub use error::{AproError, Result};
 pub use migration::{LegacyImportOptions, LegacyImportReport, LegacySourceFile, import_0_1};
 pub use value::Value;
 
-/// API canonica 1.x in costruzione. L'API 0.1 resta disponibile alla radice
-/// finché la migrazione del facade non è completata.
+/// Canonical API 1.x under development. The 0.1 API remains available at the root
+/// until the facade migration is complete.
 pub mod v1 {
     pub use aprodb_engine::*;
 }

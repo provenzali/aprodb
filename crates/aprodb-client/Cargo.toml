@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Andrea Provenzali"]
 license = "Apache-2.0"
 repository = "https://github.com/provenzali/aprodb"
-description = "Client Rust asincrono e bloccante per AProDB"
+description = "Asynchronous and blocking Rust clients for AProDB"
 
 [dependencies]
 aprodb-proto = { path = "../aprodb-proto", version = "0.1.0" }

@@ -6,7 +6,7 @@ use aprodb_types::{
     SurfaceDefinition, SurfaceFormat, SurfaceKind,
 };
 
-const USAGE: &str = "uso: aprodb-cli <health|stats|cache-stats|compression-stats|compute-stats|audit AFTER|- LIMIT|backup NAME|compression-policy TENANT NAMESPACE COLLECTION|set-compression TENANT NAMESPACE COLLECTION raw|zstd|verify|compact|expire|shutdown|explain TENANT NAMESPACE COLLECTION PARTITION KEY|create-surface ID work|read TENANT NAMESPACE COLLECTION STATES records|json MAX_RECORDS MAX_BYTES RETAINED|build-surface ID MAX_EVENTS|rebuild-surface ID> [--address HOST:PORT] [--tls-ca PEM --tls-server-name NAME [--tls-cert PEM --tls-key PEM]]\nrichiede APRODB_ADMIN_TOKEN";
+const USAGE: &str = "usage: aprodb-cli <health|stats|cache-stats|compression-stats|compute-stats|audit AFTER|- LIMIT|backup NAME|compression-policy TENANT NAMESPACE COLLECTION|set-compression TENANT NAMESPACE COLLECTION raw|zstd|verify|compact|expire|shutdown|explain TENANT NAMESPACE COLLECTION PARTITION KEY|create-surface ID work|read TENANT NAMESPACE COLLECTION STATES records|json MAX_RECORDS MAX_BYTES RETAINED|build-surface ID MAX_EVENTS|rebuild-surface ID> [--address HOST:PORT] [--tls-ca PEM --tls-server-name NAME [--tls-cert PEM --tls-key PEM]]\nrequires APRODB_ADMIN_TOKEN";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Command {
@@ -55,9 +55,9 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<CliOptions, Stri
             let after = if first == "-" {
                 None
             } else if let Ok(limit) = first.parse::<usize>() {
-                Some(u64::try_from(limit).map_err(|_| "AFTER oltre u64".to_string())?)
+                Some(u64::try_from(limit).map_err(|_| "AFTER exceeds u64".to_string())?)
             } else {
-                return Err("AFTER deve essere '-' oppure un numero".into());
+                return Err("AFTER must be '-' or a number".into());
             };
             Command::Audit {
                 after,
@@ -78,7 +78,7 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<CliOptions, Stri
                 policy.cold = CompressionTierPolicy::raw();
                 policy.archive = CompressionTierPolicy::raw();
             } else if mode != "zstd" {
-                return Err("MODE deve essere raw o zstd".into());
+                return Err("MODE must be 'raw' or 'zstd'".into());
             }
             Command::SetCompression(collection, policy)
         }
@@ -98,7 +98,7 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<CliOptions, Stri
             let kind = match required(&mut arguments, "KIND")?.as_str() {
                 "work" => SurfaceKind::Work,
                 "read" => SurfaceKind::Read,
-                _ => return Err("KIND deve essere work o read".into()),
+                _ => return Err("KIND must be 'work' or 'read'".into()),
             };
             let source_tenant = required(&mut arguments, "TENANT")?.into_bytes();
             let source_namespace = required(&mut arguments, "NAMESPACE")?.into_bytes();
@@ -110,7 +110,7 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<CliOptions, Stri
             let format = match required(&mut arguments, "FORMAT")?.as_str() {
                 "records" => SurfaceFormat::AprodbRecords,
                 "json" => SurfaceFormat::Json,
-                _ => return Err("FORMAT deve essere records o json".into()),
+                _ => return Err("FORMAT must be 'records' or 'json'".into()),
             };
             Command::CreateSurface(SurfaceDefinition {
                 id,
@@ -131,7 +131,7 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<CliOptions, Stri
         },
         Some("rebuild-surface") => Command::RebuildSurface(required(&mut arguments, "ID")?),
         Some("--help" | "-h") | None => return Err(USAGE.into()),
-        Some(command) => return Err(format!("comando sconosciuto: {command}")),
+        Some(command) => return Err(format!("unknown command: {command}")),
     };
     let mut address = "127.0.0.1:7644"
         .parse()
@@ -145,9 +145,9 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<CliOptions, Stri
             "--address" => {
                 address = arguments
                     .next()
-                    .ok_or("valore assente per --address")?
+                    .ok_or("missing value for --address")?
                     .parse()
-                    .map_err(|_| "--address non valido".to_string())?;
+                    .map_err(|_| "invalid --address value".to_string())?;
             }
             "--tls-ca" => {
                 tls_ca = Some(PathBuf::from(required(&mut arguments, "TLS_CA")?));
@@ -159,14 +159,14 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<CliOptions, Stri
             "--tls-key" => {
                 tls_private_key = Some(PathBuf::from(required(&mut arguments, "TLS_KEY")?));
             }
-            _ => return Err(format!("argomento sconosciuto: {argument}")),
+            _ => return Err(format!("unknown argument: {argument}")),
         }
     }
     if tls_certificate.is_some() != tls_private_key.is_some() {
-        return Err("--tls-cert e --tls-key devono essere forniti insieme".into());
+        return Err("--tls-cert and --tls-key must be provided together".into());
     }
     if tls_certificate.is_some() && tls_ca.is_none() {
-        return Err("l'identità mTLS richiede --tls-ca".into());
+        return Err("mTLS identity requires --tls-ca".into());
     }
     Ok(CliOptions {
         command,
@@ -181,7 +181,7 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<CliOptions, Stri
 fn required(arguments: &mut impl Iterator<Item = String>, name: &str) -> Result<String, String> {
     arguments
         .next()
-        .ok_or_else(|| format!("argomento {name} assente"))
+        .ok_or_else(|| format!("missing argument: {name}"))
 }
 
 fn required_usize(
@@ -190,7 +190,7 @@ fn required_usize(
 ) -> Result<usize, String> {
     required(arguments, name)?
         .parse()
-        .map_err(|_| format!("argomento {name} non valido"))
+        .map_err(|_| format!("invalid argument: {name}"))
 }
 
 fn required_collection(
@@ -219,24 +219,25 @@ fn main() -> ExitCode {
 fn run() -> Result<(), String> {
     let options = parse(env::args().skip(1))?;
     let token = env::var_os("APRODB_ADMIN_TOKEN")
-        .ok_or("APRODB_ADMIN_TOKEN assente")?
+        .ok_or("Missing APRODB_ADMIN_TOKEN environment variable")?
         .to_string_lossy()
         .into_owned();
     let mut config = ClientConfig::admin(token);
     if let Some(ca) = options.tls_ca.as_ref() {
-        let ca = std::fs::read(ca).map_err(|error| format!("lettura CA TLS: {error}"))?;
+        let ca = std::fs::read(ca)
+            .map_err(|error| format!("Error reading TLS CA certificate: {error}"))?;
         let certificate = options
             .tls_certificate
             .as_ref()
             .map(std::fs::read)
             .transpose()
-            .map_err(|error| format!("lettura certificato TLS client: {error}"))?;
+            .map_err(|error| format!("Error reading TLS client certificate: {error}"))?;
         let private_key = options
             .tls_private_key
             .as_ref()
             .map(std::fs::read)
             .transpose()
-            .map_err(|error| format!("lettura chiave TLS client: {error}"))?;
+            .map_err(|error| format!("Error reading TLS client private key: {error}"))?;
         config.tls = Some(
             tls_client_config(
                 &ca,
@@ -249,7 +250,7 @@ fn run() -> Result<(), String> {
     let client =
         BlockingClient::connect_tcp(options.address, config).map_err(|error| error.to_string())?;
     match options.command {
-        Command::Health => println!("healthy={}", client.health().map_err(client_error)?),
+        Command::Health => println!("health_status={}", client.health().map_err(client_error)?),
         Command::Stats => {
             let stats = client.stats().map_err(client_error)?;
             println!(
@@ -265,15 +266,15 @@ fn run() -> Result<(), String> {
         }
         Command::Verify => {
             client.verify().map_err(client_error)?;
-            println!("verify=ok");
+            println!("verification=successful");
         }
         Command::Compact => {
             client.compact().map_err(client_error)?;
-            println!("compact=ok");
+            println!("compaction=successful");
         }
         Command::Shutdown => {
             client.shutdown().map_err(client_error)?;
-            println!("shutdown=accepted");
+            println!("shutdown_request=accepted");
         }
         Command::CacheStats => {
             let stats = client.cache_stats().map_err(client_error)?;
@@ -392,14 +393,14 @@ fn run() -> Result<(), String> {
             client
                 .configure_compression(collection, policy)
                 .map_err(client_error)?;
-            println!("compression_policy=updated");
+            println!("compression_policy=updated_successfully");
         }
         Command::Expire => {
             let report = client
                 .expire(1024, Durability::Durable)
                 .map_err(client_error)?;
             println!(
-                "ttl_scanned={} ttl_expired={} ttl_stale={}",
+                "ttl_scanned_entries={} ttl_expired_entries={} ttl_stale_entries={}",
                 report.scanned, report.expired, report.stale_entries
             );
         }
@@ -425,7 +426,7 @@ fn run() -> Result<(), String> {
         Command::CreateSurface(definition) => {
             let id = definition.id.clone();
             client.create_surface(definition).map_err(client_error)?;
-            println!("surface_created={id}");
+            println!("surface_creation_successful={id}");
         }
         Command::BuildSurface { id, max_events } => {
             let report = client

@@ -79,9 +79,7 @@ impl WgpuConfig {
             || self.timeout.is_zero()
             || self.timeout > Duration::from_secs(300)
         {
-            return Err(AproError::InvalidInput(
-                "configurazione wgpu non valida".into(),
-            ));
+            return Err(AproError::InvalidInput("invalid wgpu configuration".into()));
         }
         Ok(())
     }
@@ -198,14 +196,14 @@ impl WgpuBackend {
             return Ok(Vec::new());
         }
         let count = u32::try_from(batch.rows())
-            .map_err(|_| AproError::ResourceLimit("troppi vettori per wgpu".into()))?;
+            .map_err(|_| AproError::ResourceLimit("too many vectors for wgpu".into()))?;
         let dimension = u32::try_from(batch.width())
-            .map_err(|_| AproError::ResourceLimit("dimensione vettore oltre u32".into()))?;
+            .map_err(|_| AproError::ResourceLimit("vector dimension exceeds u32".into()))?;
         let values_bytes = batch.values().len().saturating_mul(size_of::<f32>());
         let max_storage = context.device.limits().max_storage_buffer_binding_size as usize;
         if values_bytes > max_storage {
             return Err(AproError::ResourceLimit(format!(
-                "buffer vettori {values_bytes} oltre limite wgpu {max_storage}"
+                "vector buffer {values_bytes} exceeds wgpu limit {max_storage}"
             )));
         }
 
@@ -358,7 +356,7 @@ impl WgpuBackend {
                         Ok(Some(score))
                     } else {
                         Err(AproError::Compute(
-                            "wgpu ha prodotto uno score non finito".into(),
+                            "wgpu produced a non-finite score".into(),
                         ))
                     }
                 } else {
@@ -459,7 +457,7 @@ impl AcceleratorBackend for WgpuBackend {
             *guard = Some(Self::initialize()?);
         }
         let result = self.score_with_context(
-            guard.as_mut().expect("contesto inizializzato"),
+            guard.as_mut().expect("initialized context"),
             batch,
             query,
             metric,

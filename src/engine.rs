@@ -55,7 +55,7 @@ pub struct Config {
     pub path: PathBuf,
     pub shards: usize,
     pub durability: Durability,
-    /// Numero minimo di componenti (`vettori × dimensione`) prima di tentare la GPU in `Auto`.
+    /// Minimum component count (`vectors × dimensions`) before attempting the GPU in `Auto`.
     pub gpu_min_work: usize,
     pub compression_level: i32,
     pub compression_min_size: usize,
@@ -281,7 +281,7 @@ impl Database {
     ) -> Result<Vec<(String, Value)>> {
         if max_records == 0 || max_stored_bytes == 0 {
             return Err(AproError::InvalidValue(
-                "i limiti export migrazione devono essere positivi".into(),
+                "migration export limits must be positive".into(),
             ));
         }
         let _gate = self.write_gate.write();
@@ -295,18 +295,20 @@ impl Database {
                 };
                 if stored_rows.len() >= max_records {
                     return Err(AproError::InvalidValue(format!(
-                        "export migrazione oltre {max_records} record"
+                        "migration export exceeded {max_records} records"
                     )));
                 }
                 stored_bytes = stored_bytes
                     .checked_add(key.len())
                     .and_then(|bytes| bytes.checked_add(value.stored_len()))
                     .ok_or_else(|| {
-                        AproError::InvalidValue("byte export migrazione oltre usize".into())
+                        AproError::InvalidValue(
+                            "migration export bytes exceeded usize limit".into(),
+                        )
                     })?;
                 if stored_bytes > max_stored_bytes {
                     return Err(AproError::InvalidValue(format!(
-                        "export migrazione oltre {max_stored_bytes} byte memorizzati"
+                        "migration export exceeded {max_stored_bytes} stored bytes"
                     )));
                 }
                 stored_rows.push((key.clone(), value.clone()));
@@ -363,7 +365,7 @@ impl Database {
                 Ok(Value::Vector(vector)) if vector.len() == query.len() => Some(Ok((key, vector))),
                 Ok(Value::Vector(_)) => None,
                 Ok(_) => Some(Err(AproError::Corrupt(
-                    "metadato vettoriale incoerente".into(),
+                    "inconsistent vector metadata".into(),
                 ))),
                 Err(error) => Some(Err(error)),
             })
@@ -534,7 +536,7 @@ impl Database {
         #[cfg(not(feature = "gpu"))]
         {
             Err(AproError::GpuUnavailable(
-                "binario compilato senza la feature `gpu`".into(),
+                "binary was compiled without the `gpu` feature".into(),
             ))
         }
     }
@@ -590,7 +592,7 @@ impl Database {
         self.initialize_gpu()?;
         let state = self.gpu.lock();
         let GpuState::Ready(executor) = &*state else {
-            return Err(AproError::GpuUnavailable("inizializzazione fallita".into()));
+            return Err(AproError::GpuUnavailable("initialization failed".into()));
         };
         let scores = executor.score(vectors, query, metric)?;
         Ok((scores, executor.adapter_name().to_owned()))
@@ -604,7 +606,7 @@ impl Database {
         _metric: Metric,
     ) -> Result<(Vec<f32>, String)> {
         Err(AproError::GpuUnavailable(
-            "binario compilato senza la feature `gpu`".into(),
+            "binary was compiled without the `gpu` feature".into(),
         ))
     }
 }
@@ -612,17 +614,17 @@ impl Database {
 fn validate_config(config: &Config) -> Result<()> {
     if config.shards == 0 || !config.shards.is_power_of_two() {
         return Err(AproError::InvalidValue(
-            "il numero di shard deve essere una potenza di due".into(),
+            "number of shards must be a power of two".into(),
         ));
     }
     if config.compression_channels == 0 || !config.compression_channels.is_power_of_two() {
         return Err(AproError::InvalidValue(
-            "i canali di compressione devono essere una potenza di due".into(),
+            "compression channels must be a power of two".into(),
         ));
     }
     if config.compression_channels > 64 {
         return Err(AproError::InvalidValue(
-            "sono ammessi al massimo 64 canali di compressione".into(),
+            "a maximum of 64 compression channels is allowed".into(),
         ));
     }
     Ok(())
@@ -630,13 +632,11 @@ fn validate_config(config: &Config) -> Result<()> {
 
 fn validate_key(key: &str) -> Result<()> {
     if key.is_empty() {
-        return Err(AproError::InvalidKey(
-            "la chiave non può essere vuota".into(),
-        ));
+        return Err(AproError::InvalidKey("key cannot be empty".into()));
     }
     if key.len() > MAX_KEY_BYTES {
         return Err(AproError::InvalidKey(format!(
-            "la chiave supera {MAX_KEY_BYTES} byte"
+            "key exceeds {MAX_KEY_BYTES} bytes"
         )));
     }
     Ok(())
@@ -644,11 +644,11 @@ fn validate_key(key: &str) -> Result<()> {
 
 fn validate_query(query: &[f32]) -> Result<()> {
     if query.is_empty() {
-        return Err(AproError::InvalidVector("query vuota".into()));
+        return Err(AproError::InvalidVector("empty query".into()));
     }
     if query.iter().any(|value| !value.is_finite()) {
         return Err(AproError::InvalidVector(
-            "la query contiene numeri non finiti".into(),
+            "query contains non-finite numbers".into(),
         ));
     }
     Ok(())

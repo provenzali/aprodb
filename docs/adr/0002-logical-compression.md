@@ -1,57 +1,49 @@
-# ADR-0002 — Compressione logica adattiva dei payload canonici
+# ADR-0002 — Adaptive logical compression of canonical payloads
 
-- Stato: accettato per Milestone 5, con tuning sperimentale
-- Data: 19 agosto 2026
-- Ambito: payload canonici single-node; riesame operativo in Milestone 7
+- Status: accepted for Milestone 5, with experimental tuning
+- Date: August 19, 2026
+- Scope: single-node canonical payloads; reviewed during Milestone 7
 
-## Contesto
+## Background
 
-AProDB deve applicare policy Raw/Zstandard per tier, mantenere dizionari
-versionati e recuperabili e distinguere il formato logico dalla compressione
-fisica del backend. Un record deve restare decodificabile dopo riavvio e una
-versione non può dipendere dal payload corrente. Superfici pre-serializzate,
-metadata/change log, blob e indici richiedono policy separate.
+AProDB must apply Raw/Zstandard policies by tier, keep dictionaries versioned and recoverable, and
+clearly distinguish logical format from physical backend compression.
+A record must remain decodable after a restart, and one version must not depend on the current payload.
+Pre-serialized surfaces, metadata/change log, blobs, and indexes each require separate policies.
 
-## Decisione
+## Decision
 
-- I nuovi record canonici usano il frame `APRX` v1. Il payload serializzato è
-  Raw oppure Zstandard e porta versione codec, lunghezza, checksum e optional
-  dictionary id. I frame legacy sperimentali `APRC` restano leggibili.
-- La scelta è adattiva per hot/warm/cold/archive e Raw per le superfici già
-  serializzate. Soglia input, risparmio minimo, livello e prefissi content-type
-  sono configurabili per collection.
-- I dizionari vengono addestrati su campioni limitati, accettati solo se un set
-  di validazione separato migliora il totale, salvati atomicamente con il
-  catalogo e mai rimossi mentre una versione può riferirli.
-- Il pool codec e lo scratch hanno limiti espliciti; l'esaurimento produce
-  backpressure prima della pubblicazione.
-- Le cache decompresse e compresse hanno budget e metriche distinti.
-- Il keyspace canonico Fjall usa `None` come compressione fisica predefinita;
-  metadata, change log e superfici mantengono LZ4 fisico. La doppia compressione
-  è disponibile solo come configurazione misurata, non come default.
+- New canonical records use the `APRX` v1 frame. The serialized payload is
+  Raw or Zstandard and includes codec version, length, checksum, and optional dictionary id. The experimental legacy `APRC`
+  frames remain readable.
+- The choice is adaptive for hot/warm/cold/archive and Raw for already pre-serialized surfaces. Input
+  threshold, minimum savings, level, and content-type prefixes are configurable per collection.
+- Dictionaries are trained on limited samples, accepted only if a separate validation set
+  improves the total, saved atomically with the catalog, and never removed while a version may reference
+  them.
+- The codec pool and scratch space have explicit limits; exhaustion produces
+  backpressure before publication.
+- Decompressed and compressed caches have separate budgets and metrics.
+- The Fjall canonical keyspace uses `None` as the default physical compression; metadata, change log,
+  and surfaces retain LZ4 physical compression. Double compression is only available as a measured configuration,
+  not as the default.
 
-## Evidenze
+## Evidence
 
-Golden file, property test e fuzz target coprono record, catalogo e dizionari.
-I test verificano scelta Zstandard/Raw, content-type skip, riapertura, versione
-esatta, dizionario mancante, cache separate e backpressure scratch. Il percorso
-admin è coperto dal test client/server TCP.
+Golden files, property tests, and fuzz targets cover records, catalogs, and dictionaries.
+Tests verify Zstandard/Raw selection, content-type skip, reopening, exact version, missing dictionary,
+separate caches, and backpressure on scratch.
+The admin path is covered by the TCP client/server test.
 
-La matrice locale riproducibile è in
-[`benchmarks/compression`](../../benchmarks/compression/RESULTS.md). Sul payload
-comprimibile il codec logico ha ridotto 1,049,600 byte a 6,655; sul payload
-pseudocasuale ha conservato Raw in 256 casi su 256. Il run è piccolo, debug e
-dominato dalla preallocazione Fjall: non è una prova di superiorità.
+The reproducible local matrix is in
+[`benchmarks/compression`](../../benchmarks/compression/RESULTS.md).
+On compressible payloads, the logical codec reduced 1,049,600 bytes to 6,655; on pseudorandom payloads, Raw
+was preserved in 256 cases out of 256.
+The run is small, uses a debug build, and is dominated by Fjall preallocation: it is not a proof of superiority.
 
-## Conseguenze e rischi
+## Consequences and risks
 
-- Cambiare il default fisico non modifica il formato logico Fjall né richiede
-  interpretare WAL/SST; directory sperimentali già create conservano le proprie
-  opzioni fisiche. Una migrazione/tuning esplicita resta materia Milestone 7.
-- Le metriche codec contano tentativi di codifica, inclusi quelli appartenenti a
-  richieste che possono fallire in seguito; non sono un contatore di byte
-  definitivamente committati.
-- I dizionari non hanno ancora garbage collection. È intenzionale finché non
-  esiste una prova di reachability completa sulle versioni trattenute.
-- Blob esterni non vengono compressi dal frame canonico; la loro policy resta
-  separata e non implementata finché il blob store non esiste.
+- Changing the physical default does not modify the Fjall logical format or require interpreting WAL/SST; experimental directories already created retain their physical options. Explicit migration/tuning remains open after Milestone 7.
+- Codec metrics count encoding attempts, including those belonging to requests that may later fail; they are not a counter of bytes definitely committed.
+- Dictionaries do not yet have garbage collection. This is intentional until there is a complete reachability proof for retained versions.
+- External blobs are not compressed by the canonical frame; their policy remains separate and unimplemented until the blob store exists.

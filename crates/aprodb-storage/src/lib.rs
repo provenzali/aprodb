@@ -127,7 +127,7 @@ impl EncryptionConfig {
     fn validate(&self) -> Result<()> {
         if self.keys.is_empty() || self.keys.len() > 16 {
             return Err(AproError::InvalidInput(
-                "keyring cifratura deve contenere 1..16 chiavi".into(),
+                "encryption keyring must contain 1 to 16 keys".into(),
             ));
         }
         for key_id in self.keys.keys() {
@@ -138,13 +138,14 @@ impl EncryptionConfig {
                     .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
             {
                 return Err(AproError::InvalidInput(
-                    "key id deve usare 1..255 caratteri ASCII alfanumerici, '-', '_' o '.'".into(),
+                    "key id must use 1 to 255 ASCII alphanumeric characters, '-', '_', or '.'"
+                        .into(),
                 ));
             }
         }
         if !self.keys.contains_key(&self.active_key_id) {
             return Err(AproError::InvalidInput(
-                "active key id assente dal keyring".into(),
+                "active key id missing from keyring".into(),
             ));
         }
         Ok(())
@@ -311,7 +312,7 @@ pub trait StorageBackend: Send + Sync {
     fn stats(&self) -> Result<BackendStats>;
     fn major_compact(&self) -> Result<CompactionReport> {
         Err(AproError::Unsupported(
-            "il backend non offre compattazione fisica esplicita".into(),
+            "the backend does not support explicit physical compaction".into(),
         ))
     }
 }
@@ -333,11 +334,11 @@ impl EncryptedBackend {
             .config
             .keys
             .get(&self.config.active_key_id)
-            .expect("configurazione validata");
+            .expect("validated config");
         let cipher = XChaCha20Poly1305::new(key_material.into());
         let mut nonce = [0u8; 24];
         getrandom::fill(&mut nonce)
-            .map_err(|error| AproError::Encryption(format!("generazione nonce: {error}")))?;
+            .map_err(|error| AproError::Encryption(format!("failed to generate nonce: {error}")))?;
         let aad = encryption_aad(space, key, key_id);
         let ciphertext = cipher
             .encrypt(
@@ -347,9 +348,9 @@ impl EncryptedBackend {
                     aad: &aad,
                 },
             )
-            .map_err(|_| AproError::Encryption("AEAD encrypt fallita".into()))?;
+            .map_err(|_| AproError::Encryption("AEAD encryption failed".into()))?;
         let plaintext_len = u64::try_from(plaintext.len())
-            .map_err(|_| AproError::ResourceLimit("plaintext oltre u64".into()))?;
+            .map_err(|_| AproError::ResourceLimit("plaintext length exceeds u64 size".into()))?;
         let mut output = Vec::with_capacity(
             ENCRYPTED_HEADER_LEN
                 .saturating_add(key_id.len())
@@ -375,31 +376,33 @@ impl EncryptedBackend {
             || encrypted[7] != 0
         {
             return Err(AproError::Encryption(
-                "frame at-rest assente, corrotto o di versione errata".into(),
+                "Encrypted data frame missing, corrupted, or incorrect version".into(),
             ));
         }
         let key_id_len = encrypted[6] as usize;
         let ciphertext_offset = ENCRYPTED_HEADER_LEN
             .checked_add(key_id_len)
-            .ok_or_else(|| AproError::Encryption("lunghezza key id eccessiva".into()))?;
+            .ok_or_else(|| AproError::Encryption("Key ID length exceeds allowed maximum".into()))?;
         if encrypted.len() < ciphertext_offset.saturating_add(16) {
             return Err(AproError::Encryption(
-                "frame at-rest troncato prima del tag AEAD".into(),
+                "Encrypted frame truncated before AEAD authentication tag".into(),
             ));
         }
         let plaintext_len = usize::try_from(u64::from_be_bytes(
-            encrypted[8..16].try_into().expect("header verificato"),
+            encrypted[8..16].try_into().expect("verified header"),
         ))
-        .map_err(|_| AproError::ResourceLimit("plaintext cifrato oltre usize".into()))?;
+        .map_err(|_| {
+            AproError::ResourceLimit("Ciphertext plaintext length exceeds usize limit".into())
+        })?;
         if encrypted.len() - ciphertext_offset != plaintext_len.saturating_add(16) {
             return Err(AproError::Encryption(
-                "lunghezza frame at-rest incoerente".into(),
+                "Inconsistent encrypted data frame length".into(),
             ));
         }
         let key_id = std::str::from_utf8(&encrypted[ENCRYPTED_HEADER_LEN..ciphertext_offset])
-            .map_err(|_| AproError::Encryption("key id at-rest non UTF-8".into()))?;
+            .map_err(|_| AproError::Encryption("Encrypted key ID is not valid UTF-8".into()))?;
         let key_material = self.config.keys.get(key_id).ok_or_else(|| {
-            AproError::Encryption(format!("key id '{key_id}' assente dal keyring"))
+            AproError::Encryption(format!("Key ID '{key_id}' not found in keyring"))
         })?;
         let cipher = XChaCha20Poly1305::new(key_material.into());
         let nonce = XNonce::from_slice(&encrypted[16..40]);
@@ -412,10 +415,12 @@ impl EncryptedBackend {
                     aad: &aad,
                 },
             )
-            .map_err(|_| AproError::Encryption("autenticazione AEAD del valore fallita".into()))?;
+            .map_err(|_| {
+                AproError::Encryption("AEAD authentication failed for ciphertext".into())
+            })?;
         if plaintext.len() != plaintext_len {
             return Err(AproError::Encryption(
-                "lunghezza plaintext at-rest incoerente".into(),
+                "Inconsistent plaintext length after decryption".into(),
             ));
         }
         Ok(plaintext)
@@ -719,14 +724,14 @@ impl StorageBackend for FjallBackend {
     fn commit(&self, batch: StorageBatch, mode: CommitMode) -> Result<()> {
         if batch.len() > self.options.max_batch_operations {
             return Err(AproError::ResourceLimit(format!(
-                "batch storage con {} operazioni, massimo {}",
+                "storage batch with {} operations, maximum allowed is {}",
                 batch.len(),
                 self.options.max_batch_operations
             )));
         }
         if batch.bytes() > self.options.max_batch_bytes {
             return Err(AproError::ResourceLimit(format!(
-                "batch storage di {} byte, massimo {}",
+                "storage batch size of {} bytes, maximum allowed is {}",
                 batch.bytes(),
                 self.options.max_batch_bytes
             )));
@@ -736,7 +741,7 @@ impl StorageBackend for FjallBackend {
         }
         if self.poisoned.load(Ordering::Acquire) {
             return Err(AproError::Storage(
-                "backend Fjall arrestato dopo un errore di scrittura; riaprire il database".into(),
+                "Fjall backend halted after a write error; reopen the database".into(),
             ));
         }
         let result = (|| {
@@ -768,7 +773,7 @@ impl StorageBackend for FjallBackend {
     fn persist(&self, mode: CommitMode) -> Result<()> {
         if self.poisoned.load(Ordering::Acquire) {
             return Err(AproError::Storage(
-                "backend Fjall arrestato dopo un errore di scrittura; riaprire il database".into(),
+                "Fjall backend halted after a write error; reopen the database".into(),
             ));
         }
         let result = self.faults.check(FaultPoint::BeforePersist).and_then(|()| {
@@ -858,7 +863,7 @@ impl StorageBackend for FjallBackend {
         while self.database.write_buffer_size() != 0 || self.database.outstanding_flushes() != 0 {
             if Instant::now() >= deadline {
                 return Err(AproError::Storage(format!(
-                    "timeout flush Fjall dopo {:?}",
+                    "Fjall flush operation timed out after {:?}",
                     self.options.maintenance_timeout
                 )));
             }
@@ -880,27 +885,27 @@ impl StorageBackend for FjallBackend {
 fn validate_options(options: &FjallOptions) -> Result<()> {
     if options.cache_bytes == 0 {
         return Err(AproError::InvalidInput(
-            "cache Fjall deve avere un budget positivo".into(),
+            "Fjall cache size must be positive".into(),
         ));
     }
     if options.max_journal_bytes < 64 * 1024 * 1024 {
         return Err(AproError::InvalidInput(
-            "max journal Fjall deve essere almeno 64 MiB".into(),
+            "Fjall maximum journal size must be at least 64 MiB".into(),
         ));
     }
     if options.worker_threads == 0 {
         return Err(AproError::InvalidInput(
-            "Fjall richiede almeno un worker".into(),
+            "Fjall requires at least one worker thread".into(),
         ));
     }
     if options.max_memtable_bytes < 1024 * 1024 {
         return Err(AproError::InvalidInput(
-            "memtable Fjall deve essere almeno 1 MiB".into(),
+            "Fjall memtable size must be at least 1 MiB".into(),
         ));
     }
     if options.maintenance_timeout.is_zero() {
         return Err(AproError::InvalidInput(
-            "timeout manutenzione Fjall deve essere positivo".into(),
+            "Fjall maintenance timeout must be greater than zero".into(),
         ));
     }
     Ok(())
@@ -943,7 +948,7 @@ fn acquire_lock(root: &Path) -> Result<DirectoryLock> {
     }
     let mut roots = locked_roots()
         .lock()
-        .map_err(|_| AproError::Storage("registro lock directory avvelenato".into()))?;
+        .map_err(|_| AproError::Storage("directory lock registry is corrupted".into()))?;
     if !roots.insert(canonical_root.clone()) {
         return Err(AproError::DataDirectoryLocked(root.display().to_string()));
     }
@@ -962,7 +967,7 @@ fn validate_or_create_marker(root: &Path) -> Result<()> {
             marker.read_to_end(&mut contents).map_err(storage_error)?;
             if contents != FORMAT_MARKER {
                 return Err(AproError::IncompatibleFormat(format!(
-                    "marker non riconosciuto in {}",
+                    "Unrecognized format marker in {}",
                     marker_path.display()
                 )));
             }
@@ -973,7 +978,7 @@ fn validate_or_create_marker(root: &Path) -> Result<()> {
             let legacy_snapshot = root.join("aprodb.snapshot");
             if legacy_wal.exists() || legacy_snapshot.exists() {
                 return Err(AproError::IncompatibleFormat(
-                    "directory AProDB 0.1: usare import esplicito o una directory 1.x vuota".into(),
+                    "Detected AProDB version 0.1 directory: please use explicit import or an empty 1.x directory".into(),
                 ));
             }
             let backend_path = root.join("backend");
@@ -985,7 +990,8 @@ fn validate_or_create_marker(root: &Path) -> Result<()> {
                     .is_some()
             {
                 return Err(AproError::IncompatibleFormat(
-                    "backend senza marker AProDB; apertura automatica rifiutata".into(),
+                    "Backend directory missing AProDB format marker; automatic opening is denied"
+                        .into(),
                 ));
             }
             let temporary = root.join("APRODB_FORMAT.tmp");
@@ -1050,6 +1056,7 @@ mod tests {
 
     #[test]
     fn rejects_legacy_directory_and_second_open() {
+        // Rejects legacy directories and prevents a second concurrent open.
         let legacy = tempdir().unwrap();
         std::fs::write(legacy.path().join("aprodb.wal"), b"legacy").unwrap();
         assert!(matches!(
@@ -1069,6 +1076,7 @@ mod tests {
 
     #[test]
     fn encrypted_backend_authenticates_space_key_and_key_id() {
+        // Verifies authentication of space key and key ID in EncryptedBackend.
         let directory = tempdir().unwrap();
         let raw = Arc::new(FjallBackend::open(directory.path(), FjallOptions::default()).unwrap());
         let raw_backend: Arc<dyn StorageBackend> = raw.clone();
@@ -1116,6 +1124,7 @@ mod tests {
 
     #[test]
     fn cross_process_lock_is_exclusive() {
+        // Ensures cross-process lock prevents concurrent access.
         let directory = tempdir().unwrap();
         let mut child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "tests::cross_process_lock_helper", "--nocapture"])
@@ -1141,6 +1150,7 @@ mod tests {
 
     #[test]
     fn cross_process_lock_helper() {
+        // Helper for cross-process lock test, waits for connection to release lock.
         let Ok(path) = std::env::var("APRODB_LOCK_HELPER_PATH") else {
             return;
         };
@@ -1151,12 +1161,12 @@ mod tests {
         listener.accept().unwrap();
     }
 
-    struct OpenFault;
+    struct OpenFault; // Fault injector to simulate failure during backend open.
 
     impl super::FaultInjector for OpenFault {
         fn check(&self, point: super::FaultPoint) -> aprodb_types::Result<()> {
             if point == super::FaultPoint::BeforeOpen {
-                return Err(AproError::Storage("fault apertura backend".into()));
+                return Err(AproError::Storage("backend open fault".into()));
             }
             Ok(())
         }
@@ -1164,6 +1174,7 @@ mod tests {
 
     #[test]
     fn failed_backend_open_releases_the_directory_lock() {
+        // Ensures directory lock is released if backend open fails.
         let directory = tempdir().unwrap();
         assert!(
             FjallBackend::open_with_faults(
@@ -1178,6 +1189,7 @@ mod tests {
 
     #[test]
     fn durable_commit_survives_writer_process_kill() {
+        // Tests durable commit survives abrupt termination of the writer process.
         let directory = tempdir().unwrap();
         let mut child = Command::new(std::env::current_exe().unwrap())
             .args([
@@ -1210,6 +1222,7 @@ mod tests {
 
     #[test]
     fn durable_commit_process_helper() {
+        // Helper for durable commit test process.
         let Ok(path) = std::env::var("APRODB_DURABLE_HELPER_PATH") else {
             return;
         };
@@ -1229,6 +1242,7 @@ mod tests {
 
     #[test]
     fn atomic_batch_reopens_with_all_keyspaces() {
+        // Tests atomic batch commit persists all keyspaces and reopens correctly.
         let directory = tempdir().unwrap();
         {
             let backend = FjallBackend::open(directory.path(), FjallOptions::default()).unwrap();
@@ -1259,6 +1273,7 @@ mod tests {
 
     #[test]
     fn scans_are_bounded() {
+        // Verifies that prefix scans respect the specified maximum number of results.
         let directory = tempdir().unwrap();
         let backend = FjallBackend::open(directory.path(), FjallOptions::default()).unwrap();
         let mut batch = StorageBatch::default();
@@ -1276,6 +1291,7 @@ mod tests {
 
     #[test]
     fn explicit_compaction_flushes_and_preserves_data() {
+        // Checks that explicit compaction flushes data and preserves correctness after reopening.
         let directory = tempdir().unwrap();
         let options = FjallOptions {
             max_memtable_bytes: 1024 * 1024,
@@ -1297,7 +1313,7 @@ mod tests {
             assert!(report.disk_bytes_after > 0);
             assert!(
                 report.table_count_after > 0,
-                "report compattazione inatteso: {report:?}"
+                "unexpected compaction report: {report:?}"
             );
             assert_eq!(
                 backend

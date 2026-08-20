@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Andrea Provenzali"]
 license = "AGPL-3.0-only"
 repository = "https://github.com/provenzali/aprodb"
-description = "Operatori compute CPU di riferimento e boundary GPU di AProDB"
+description = "Reference CPU compute operators and GPU boundary for AProDB"
 
 [features]
 default = []

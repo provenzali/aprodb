@@ -47,9 +47,9 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 pub enum ClientError {
     #[error("I/O client: {0}")]
     Io(#[from] std::io::Error),
-    #[error("protocollo: {0}")]
+    #[error("protocol: {0}")]
     Protocol(#[from] aprodb_proto::ProtocolError),
-    #[error("handshake rifiutato ({code:?}): {message}")]
+    #[error("handshake rejected ({code:?}): {message}")]
     Handshake { code: ErrorCode, message: String },
     #[error("server ({code:?}): {message}")]
     Server {
@@ -57,15 +57,15 @@ pub enum ClientError {
         message: String,
         retry_after: Option<Duration>,
     },
-    #[error("connessione chiusa")]
+    #[error("connection closed")]
     Disconnected,
-    #[error("deadline client scaduta")]
+    #[error("client deadline exceeded")]
     DeadlineExceeded,
-    #[error("coda client chiusa")]
+    #[error("client queue closed")]
     QueueClosed,
-    #[error("runtime client: {0}")]
+    #[error("client runtime: {0}")]
     Runtime(String),
-    #[error("risposta non valida: {0}")]
+    #[error("invalid response: {0}")]
     InvalidResponse(String),
     #[error("TLS client: {0}")]
     Tls(String),
@@ -99,33 +99,33 @@ pub fn tls_client_config(
         .collect::<std::io::Result<Vec<_>>>()
         .map_err(|error| ClientError::Tls(format!("CA server: {error}")))?;
     if certificates.is_empty() {
-        return Err(ClientError::Tls("CA server vuota".into()));
+        return Err(ClientError::Tls("empty server CA".into()));
     }
     for certificate in certificates {
         roots
             .add(certificate)
-            .map_err(|error| ClientError::Tls(format!("CA server non valida: {error}")))?;
+            .map_err(|error| ClientError::Tls(format!("invalid CA server: {error}")))?;
     }
     let builder = rustls::ClientConfig::builder().with_root_certificates(roots);
     let config = if let Some((certificate_pem, private_key_pem)) = client_identity_pem {
         let certificates = rustls_pemfile::certs(&mut Cursor::new(certificate_pem))
             .collect::<std::io::Result<Vec<_>>>()
-            .map_err(|error| ClientError::Tls(format!("certificato client: {error}")))?;
+            .map_err(|error| ClientError::Tls(format!("client certificate: {error}")))?;
         if certificates.is_empty() {
-            return Err(ClientError::Tls("catena certificati client vuota".into()));
+            return Err(ClientError::Tls("empty client certificate chain".into()));
         }
         let private_key = rustls_pemfile::private_key(&mut Cursor::new(private_key_pem))
-            .map_err(|error| ClientError::Tls(format!("chiave privata client: {error}")))?
-            .ok_or_else(|| ClientError::Tls("chiave privata client assente".into()))?;
+            .map_err(|error| ClientError::Tls(format!("client private key: {error}")))?
+            .ok_or_else(|| ClientError::Tls("missing client private key".into()))?;
         builder
             .with_client_auth_cert(certificates, private_key)
-            .map_err(|error| ClientError::Tls(format!("identità client: {error}")))?
+            .map_err(|error| ClientError::Tls(format!("client identity: {error}")))?
     } else {
         builder.with_no_client_auth()
     };
     let server_name = server_name.into();
     ServerName::try_from(server_name.clone())
-        .map_err(|error| ClientError::Tls(format!("nome server non valido: {error}")))?;
+        .map_err(|error| ClientError::Tls(format!("invalid server name: {error}")))?;
     Ok(ClientTlsConfig {
         config: Arc::new(config),
         server_name,
@@ -168,12 +168,12 @@ impl ClientConfig {
     fn validate(&self) -> Result<()> {
         if self.queue_depth == 0 {
             return Err(ClientError::InvalidResponse(
-                "queue_depth client deve essere positivo".into(),
+                "client queue_depth must be positive".into(),
             ));
         }
         if self.request_timeout.is_zero() || self.handshake_timeout.is_zero() {
             return Err(ClientError::InvalidResponse(
-                "timeout client deve essere positivo".into(),
+                "client timeout must be positive".into(),
             ));
         }
         let hello = ClientHello::new(self.role, self.auth_token.clone(), self.max_frame_bytes);
@@ -414,7 +414,7 @@ impl AsyncClient {
         stream.set_nodelay(true)?;
         if let Some(tls) = config.tls.clone() {
             let server_name = ServerName::try_from(tls.server_name.clone())
-                .map_err(|error| ClientError::Tls(format!("nome server non valido: {error}")))?;
+                .map_err(|error| ClientError::Tls(format!("invalid server name: {error}")))?;
             let stream = timeout(
                 config.handshake_timeout,
                 TlsConnector::from(tls.config).connect(server_name, stream),
@@ -435,7 +435,7 @@ impl AsyncClient {
     ) -> Result<Self> {
         if config.tls.is_some() {
             return Err(ClientError::Tls(
-                "TLS è supportato solo per il trasporto TCP".into(),
+                "TLS is supported only over TCP transport".into(),
             ));
         }
         let stream = timeout(
@@ -451,7 +451,7 @@ impl AsyncClient {
     pub async fn connect_local(name: &str, config: ClientConfig) -> Result<Self> {
         if config.tls.is_some() {
             return Err(ClientError::Tls(
-                "TLS è supportato solo per il trasporto TCP".into(),
+                "TLS is supported only over TCP transport".into(),
             ));
         }
         let stream = tokio::net::windows::named_pipe::ClientOptions::new().open(name)?;
@@ -490,7 +490,7 @@ impl AsyncClient {
         if server_hello.protocol_major != aprodb_proto::PROTOCOL_MAJOR {
             return Err(ClientError::Handshake {
                 code: ErrorCode::Incompatible,
-                message: "protocol major server incompatibile".into(),
+                message: "server protocol major version incompatible".into(),
             });
         }
         let negotiated_max = (server_hello.max_frame_bytes as usize).min(config.max_frame_bytes);
@@ -506,7 +506,7 @@ impl AsyncClient {
     async fn request(&self, mut request: Request) -> Result<Response> {
         let caller_deadline = Instant::now()
             .checked_add(self.request_timeout)
-            .ok_or_else(|| ClientError::Runtime("deadline monotona non rappresentabile".into()))?;
+            .ok_or_else(|| ClientError::Runtime("monotonic deadline not representable".into()))?;
         request.request_id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
         request.deadline_unix_ms = unix_ms_after(self.request_timeout)?;
         request.validate()?;
@@ -628,16 +628,16 @@ impl AsyncClient {
         mutations: Vec<Mutation>,
         durability: Durability,
     ) -> Result<Vec<MutationReceipt>> {
-        let first = mutations
-            .first()
-            .ok_or_else(|| ClientError::InvalidResponse("AtomicBatch client vuoto".into()))?;
+        let first = mutations.first().ok_or_else(|| {
+            ClientError::InvalidResponse("AtomicBatch mutation list is empty".into())
+        })?;
         let tenant = first.identity().tenant.clone();
         let namespace = first.identity().namespace.clone();
         if mutations.iter().any(|mutation| {
             mutation.identity().tenant != tenant || mutation.identity().namespace != namespace
         }) {
             return Err(ClientError::InvalidResponse(
-                "AtomicBatch deve condividere tenant e namespace".into(),
+                "AtomicBatch mutations must belong to the same tenant and namespace".into(),
             ));
         }
         let wire_mutations = mutations.into_iter().map(wire_mutation).collect::<Vec<_>>();
@@ -692,8 +692,8 @@ impl AsyncClient {
         durability: Durability,
     ) -> Result<Vec<ClaimedRecord>> {
         let max_records = u64::try_from(max_records)
-            .map_err(|_| ClientError::InvalidResponse("max_records Claim oltre u64".into()))?;
-        let lease_duration_ms = duration_ms(lease_duration, "durata lease")?;
+            .map_err(|_| ClientError::InvalidResponse("max_records Claim exceeds u64".into()))?;
+        let lease_duration_ms = duration_ms(lease_duration, "lease duration")?;
         let response = self
             .request(Request {
                 request_id: 0,
@@ -804,7 +804,7 @@ impl AsyncClient {
         limit: usize,
     ) -> Result<ChangePage> {
         let limit = u64::try_from(limit)
-            .map_err(|_| ClientError::InvalidResponse("limite change stream oltre u64".into()))?;
+            .map_err(|_| ClientError::InvalidResponse("change stream limit exceeds u64".into()))?;
         let response = self
             .request(Request {
                 request_id: 0,
@@ -899,7 +899,7 @@ impl AsyncClient {
             key: Some(key),
             lease_id: lease.lease_id.to_vec(),
             fencing_token: lease.fencing_token,
-            extension_ms: duration_ms(extension, "estensione lease")?,
+            extension_ms: duration_ms(extension, "lease extension")?,
             idempotency_key_hash: wire_hash(idempotency_key_hash),
         };
         let operation = match mutation {
@@ -933,7 +933,7 @@ impl AsyncClient {
         let operation = BuildSurfaceOperation {
             projection_id: projection_id.into(),
             max_events: u64::try_from(max_events).map_err(|_| {
-                ClientError::InvalidResponse("max_events superficie oltre u64".into())
+                ClientError::InvalidResponse("max_events surface exceeds u64".into())
             })?,
         };
         let operation = if rebuild {
@@ -951,7 +951,7 @@ impl AsyncClient {
             .surface_build
             .map(surface_build_report)
             .transpose()?
-            .ok_or_else(|| ClientError::InvalidResponse("report superficie assente".into()))
+            .ok_or_else(|| ClientError::InvalidResponse("missing surface report".into()))
     }
 
     pub async fn sync(&self) -> Result<()> {
@@ -974,7 +974,7 @@ impl AsyncClient {
         self.request(admin_request(request::Operation::Stats(StatsOperation {})))
             .await?
             .stats
-            .ok_or_else(|| ClientError::InvalidResponse("stats assenti".into()))
+            .ok_or_else(|| ClientError::InvalidResponse("missing stats".into()))
     }
 
     pub async fn verify(&self) -> Result<()> {
@@ -999,7 +999,7 @@ impl AsyncClient {
                 AuditListOperation {
                     after_sequence,
                     limit: u64::try_from(limit).map_err(|_| {
-                        ClientError::InvalidResponse("limit audit oltre u64".into())
+                        ClientError::InvalidResponse("audit limit exceeds u64".into())
                     })?,
                 },
             )))
@@ -1008,14 +1008,15 @@ impl AsyncClient {
             .audit_events
             .into_iter()
             .map(|event| {
-                let event_id: [u8; 16] = event.event_id.try_into().map_err(|_| {
-                    ClientError::InvalidResponse("event_id audit non valido".into())
-                })?;
+                let event_id: [u8; 16] = event
+                    .event_id
+                    .try_into()
+                    .map_err(|_| ClientError::InvalidResponse("invalid audit event_id".into()))?;
                 let target_hash = event
                     .target_hash
                     .map(|value| {
                         value.try_into().map_err(|_| {
-                            ClientError::InvalidResponse("target_hash audit non valido".into())
+                            ClientError::InvalidResponse("invalid audit target_hash".into())
                         })
                     })
                     .transpose()?;
@@ -1024,9 +1025,7 @@ impl AsyncClient {
                     "succeeded" => AuditOutcome::Succeeded,
                     "failed" => AuditOutcome::Failed,
                     _ => {
-                        return Err(ClientError::InvalidResponse(
-                            "outcome audit sconosciuto".into(),
-                        ));
+                        return Err(ClientError::InvalidResponse("unknown audit outcome".into()));
                     }
                 };
                 Ok(AuditEvent {
@@ -1063,7 +1062,7 @@ impl AsyncClient {
             logical_bytes: backup.logical_bytes,
             encrypted: backup.encrypted,
         })
-        .ok_or_else(|| ClientError::InvalidResponse("informazioni backup assenti".into()))
+        .ok_or_else(|| ClientError::InvalidResponse("missing backup information".into()))
     }
 
     pub async fn shutdown(&self) -> Result<()> {
@@ -1090,18 +1089,18 @@ impl AsyncClient {
             .await?;
         let placement = response
             .placement
-            .ok_or_else(|| ClientError::InvalidResponse("placement assente".into()))?;
+            .ok_or_else(|| ClientError::InvalidResponse("missing placement".into()))?;
         Ok(Placement {
             canonical_version: placement
                 .canonical_version
-                .ok_or_else(|| ClientError::InvalidResponse("versione placement assente".into()))?
+                .ok_or_else(|| ClientError::InvalidResponse("missing placement version".into()))?
                 .into(),
             radial_score_millis: u16::try_from(placement.radial_score_millis)
-                .map_err(|_| ClientError::InvalidResponse("radial score oltre u16".into()))?,
+                .map_err(|_| ClientError::InvalidResponse("radial score exceeds u16".into()))?,
             freshness_millis: u16::try_from(placement.freshness_millis)
-                .map_err(|_| ClientError::InvalidResponse("freshness oltre u16".into()))?,
+                .map_err(|_| ClientError::InvalidResponse("freshness exceeds u16".into()))?,
             urgency_millis: u16::try_from(placement.urgency_millis)
-                .map_err(|_| ClientError::InvalidResponse("urgenza oltre u16".into()))?,
+                .map_err(|_| ClientError::InvalidResponse("urgency exceeds u16".into()))?,
             current_layer: placement.current_layer,
             recommended_layer: placement.recommended_layer,
             storage_class: placement.storage_class,
@@ -1120,7 +1119,7 @@ impl AsyncClient {
             .await?;
         let stats = response
             .cache_stats
-            .ok_or_else(|| ClientError::InvalidResponse("cache stats assenti".into()))?;
+            .ok_or_else(|| ClientError::InvalidResponse("missing cache stats".into()))?;
         Ok(ClientCacheStats {
             metadata: client_cache_metrics(stats.metadata, "metadata")?,
             objects: client_cache_metrics(stats.objects, "objects")?,
@@ -1137,7 +1136,7 @@ impl AsyncClient {
             .await?;
         let stats = response
             .compression_stats
-            .ok_or_else(|| ClientError::InvalidResponse("compression stats assenti".into()))?;
+            .ok_or_else(|| ClientError::InvalidResponse("missing compression stats".into()))?;
         Ok(ClientCompressionStats {
             logical_bytes: stats.logical_bytes,
             stored_bytes: stats.stored_bytes,
@@ -1176,7 +1175,7 @@ impl AsyncClient {
         compression_policy_from_wire(
             response
                 .compression_policy
-                .ok_or_else(|| ClientError::InvalidResponse("compression policy assente".into()))?,
+                .ok_or_else(|| ClientError::InvalidResponse("missing compression policy".into()))?,
         )
     }
 
@@ -1226,15 +1225,11 @@ impl AsyncClient {
                             .map(WirePayload::from)
                             .collect(),
                         max_dictionary_bytes: u64::try_from(max_dictionary_bytes).map_err(
-                            |_| {
-                                ClientError::InvalidResponse(
-                                    "dimensione dizionario oltre u64".into(),
-                                )
-                            },
+                            |_| ClientError::InvalidResponse("dictionary size exceeds u64".into()),
                         )?,
                         minimum_validation_gain_bytes: u64::try_from(minimum_validation_gain_bytes)
                             .map_err(|_| {
-                                ClientError::InvalidResponse("gain dizionario oltre u64".into())
+                                ClientError::InvalidResponse("dictionary gain exceeds u64".into())
                             })?,
                     },
                 )),
@@ -1244,7 +1239,7 @@ impl AsyncClient {
             })
             .await?;
         let dictionary = response.compression_dictionary.ok_or_else(|| {
-            ClientError::InvalidResponse("metadati dizionario compressione assenti".into())
+            ClientError::InvalidResponse("missing compression dictionary metadata".into())
         })?;
         Ok(ClientCompressionDictionary {
             id: dictionary.id,
@@ -1282,9 +1277,9 @@ impl AsyncClient {
                         VectorMetric::Cosine => WireVectorMetric::Cosine,
                     } as i32,
                     limit: u64::try_from(limit)
-                        .map_err(|_| ClientError::InvalidResponse("limit oltre u64".into()))?,
+                        .map_err(|_| ClientError::InvalidResponse("limit exceeds u64".into()))?,
                     max_scan_records: u64::try_from(max_scan_records).map_err(|_| {
-                        ClientError::InvalidResponse("max_scan_records oltre u64".into())
+                        ClientError::InvalidResponse("max_scan_records exceeds u64".into())
                     })?,
                     preference: match preference {
                         ComputePreference::Cpu => WireComputePreference::Cpu,
@@ -1297,14 +1292,14 @@ impl AsyncClient {
             .await?;
         let result = response
             .vector_search
-            .ok_or_else(|| ClientError::InvalidResponse("risultato VectorSearch assente".into()))?;
+            .ok_or_else(|| ClientError::InvalidResponse("missing VectorSearch result".into()))?;
         let execution = match WireComputeExecution::try_from(result.execution) {
             Ok(WireComputeExecution::Cpu) => ComputeExecution::Cpu,
             Ok(WireComputeExecution::Accelerator) => ComputeExecution::Accelerator,
             Ok(WireComputeExecution::CpuFallback) => ComputeExecution::CpuFallback,
             Err(_) => {
                 return Err(ClientError::InvalidResponse(
-                    "compute execution sconosciuta".into(),
+                    "unknown compute execution".into(),
                 ));
             }
         };
@@ -1324,7 +1319,7 @@ impl AsyncClient {
                     version: hit
                         .version
                         .ok_or_else(|| {
-                            ClientError::InvalidResponse("version hit vettoriale assente".into())
+                            ClientError::InvalidResponse("missing vector hit version".into())
                         })?
                         .into(),
                     score: hit.score,
@@ -1333,10 +1328,11 @@ impl AsyncClient {
             .collect::<Result<Vec<_>>>()?;
         Ok(ClientVectorSearchResult {
             hits,
-            scanned_records: usize::try_from(result.scanned_records)
-                .map_err(|_| ClientError::InvalidResponse("scanned_records oltre usize".into()))?,
+            scanned_records: usize::try_from(result.scanned_records).map_err(|_| {
+                ClientError::InvalidResponse("scanned_records exceeds usize".into())
+            })?,
             vector_candidates: usize::try_from(result.vector_candidates).map_err(|_| {
-                ClientError::InvalidResponse("vector_candidates oltre usize".into())
+                ClientError::InvalidResponse("vector_candidates exceeds usize".into())
             })?,
             execution,
             accelerator: result.accelerator,
@@ -1353,7 +1349,7 @@ impl AsyncClient {
             .await?;
         let stats = response
             .compute_stats
-            .ok_or_else(|| ClientError::InvalidResponse("compute stats assenti".into()))?;
+            .ok_or_else(|| ClientError::InvalidResponse("missing compute stats".into()))?;
         Ok(ClientComputeStats {
             requests: stats.requests,
             cpu_runs: stats.cpu_runs,
@@ -1388,7 +1384,7 @@ impl AsyncClient {
         durability: Durability,
     ) -> Result<ClientExpirationReport> {
         let limit = u64::try_from(limit)
-            .map_err(|_| ClientError::InvalidResponse("limite Expire oltre u64".into()))?;
+            .map_err(|_| ClientError::InvalidResponse("Expire limit exceeds u64".into()))?;
         let response = self
             .request(Request {
                 durability: wire_durability(durability),
@@ -1398,7 +1394,7 @@ impl AsyncClient {
             .await?;
         let expiration = response
             .expiration
-            .ok_or_else(|| ClientError::InvalidResponse("expiration stats assenti".into()))?;
+            .ok_or_else(|| ClientError::InvalidResponse("missing expiration stats".into()))?;
         Ok(ClientExpirationReport {
             scanned: expiration.scanned,
             expired: expiration.expired,
@@ -1423,7 +1419,7 @@ async fn connection_actor<S>(
                 if pending.insert(request_id, command.response).is_some() {
                     if let Some(response) = pending.remove(&request_id) {
                         let _ = response.send(Err(ClientError::InvalidResponse(
-                            "request_id duplicato nel client".into(),
+                            "duplicate request_id in client".into(),
                         )));
                     }
                     continue;
@@ -1570,7 +1566,7 @@ fn wire_hash(hash: Option<[u8; 32]>) -> Vec<u8> {
 
 fn duration_ms(duration: Duration, name: &str) -> Result<u64> {
     u64::try_from(duration.as_millis())
-        .map_err(|_| ClientError::InvalidResponse(format!("{name} oltre u64 millisecondi")))
+        .map_err(|_| ClientError::InvalidResponse(format!("{name} exceeds u64 milliseconds")))
 }
 
 fn wire_surface_definition(definition: SurfaceDefinition) -> Result<WireSurfaceDefinition> {
@@ -1589,11 +1585,11 @@ fn wire_surface_definition(definition: SurfaceDefinition) -> Result<WireSurfaceD
             SurfaceFormat::Json => WireSurfaceFormat::Json as i32,
         },
         max_records: u64::try_from(definition.max_records)
-            .map_err(|_| ClientError::InvalidResponse("max_records superficie oltre u64".into()))?,
+            .map_err(|_| ClientError::InvalidResponse("surface max_records exceeds u64".into()))?,
         max_bytes: u64::try_from(definition.max_bytes)
-            .map_err(|_| ClientError::InvalidResponse("max_bytes superficie oltre u64".into()))?,
+            .map_err(|_| ClientError::InvalidResponse("surface max_bytes exceeds u64".into()))?,
         retained_generations: u64::try_from(definition.retained_generations).map_err(|_| {
-            ClientError::InvalidResponse("retained_generations superficie oltre u64".into())
+            ClientError::InvalidResponse("surface retained_generations exceeds u64".into())
         })?,
     })
 }
@@ -1620,7 +1616,7 @@ fn admin_request(operation: request::Operation) -> Request {
 fn one_receipt(response: Response) -> Result<MutationReceipt> {
     if response.receipts.len() != 1 {
         return Err(ClientError::InvalidResponse(format!(
-            "atteso un receipt, ricevuti {}",
+            "expected a single receipt, received {}",
             response.receipts.len()
         )));
     }
@@ -1628,7 +1624,7 @@ fn one_receipt(response: Response) -> Result<MutationReceipt> {
         .receipts
         .into_iter()
         .next()
-        .expect("lunghezza verificata")
+        .expect("length already checked")
         .try_into()
         .map_err(ClientError::from)
 }
@@ -1637,7 +1633,7 @@ fn one_workflow_result(mut response: Response) -> Result<ClientWorkflowResult> {
     let record = response
         .record
         .take()
-        .ok_or_else(|| ClientError::InvalidResponse("record workflow assente".into()))?
+        .ok_or_else(|| ClientError::InvalidResponse("missing workflow record".into()))?
         .try_into()
         .map_err(ClientError::from)?;
     let receipt = one_receipt(response)?;
@@ -1647,7 +1643,7 @@ fn one_workflow_result(mut response: Response) -> Result<ClientWorkflowResult> {
 fn claimed_records(response: Response) -> Result<Vec<ClaimedRecord>> {
     if response.claimed_records.len() != response.receipts.len() {
         return Err(ClientError::InvalidResponse(format!(
-            "Claim ha {} record e {} receipt",
+            "Claim has {} records but {} receipts",
             response.claimed_records.len(),
             response.receipts.len()
         )));
@@ -1661,11 +1657,11 @@ fn claimed_records(response: Response) -> Result<Vec<ClaimedRecord>> {
         .map(|(record, receipt)| {
             let record: RecordEnvelope = record.try_into().map_err(ClientError::from)?;
             let lease_id = record.workflow.lease_id.ok_or_else(|| {
-                ClientError::InvalidResponse("Claim senza lease id nel record".into())
+                ClientError::InvalidResponse("Claim record has no lease ID".into())
             })?;
             let lease_deadline_unix_ms =
                 record.workflow.lease_deadline_unix_ms.ok_or_else(|| {
-                    ClientError::InvalidResponse("Claim senza deadline lease nel record".into())
+                    ClientError::InvalidResponse("Claim record has no lease deadline".into())
                 })?;
             Ok(ClaimedRecord {
                 lease: LeaseProof {
@@ -1688,7 +1684,7 @@ fn surface_generation(surface: aprodb_proto::WireSurfaceGeneration) -> Result<Su
         Ok(WireSurfaceFormat::Json) => SurfaceFormat::Json,
         Err(_) => {
             return Err(ClientError::InvalidResponse(
-                "formato superficie sconosciuto".into(),
+                "unknown surface format".into(),
             ));
         }
     };
@@ -1699,7 +1695,7 @@ fn surface_generation(surface: aprodb_proto::WireSurfaceGeneration) -> Result<Su
             source_watermarks: surface.source_watermarks,
             format,
             record_count: usize::try_from(surface.record_count).map_err(|_| {
-                ClientError::InvalidResponse("record_count superficie oltre usize".into())
+                ClientError::InvalidResponse("surface record_count exceeds usize".into())
             })?,
             serialized: surface.serialized,
             created_at_unix_ms: surface.created_at_unix_ms,
@@ -1715,14 +1711,14 @@ fn surface_build_report(build: aprodb_proto::WireSurfaceBuild) -> Result<Surface
         projection_id: build.projection_id,
         generation: build.generation,
         events_applied: usize::try_from(build.events_applied).map_err(|_| {
-            ClientError::InvalidResponse("events_applied superficie oltre usize".into())
+            ClientError::InvalidResponse("surface events_applied exceeds usize".into())
         })?,
         source_watermarks: build.source_watermarks,
         record_count: usize::try_from(build.record_count).map_err(|_| {
-            ClientError::InvalidResponse("record_count superficie oltre usize".into())
+            ClientError::InvalidResponse("surface record_count exceeds usize".into())
         })?,
         serialized_bytes: usize::try_from(build.serialized_bytes).map_err(|_| {
-            ClientError::InvalidResponse("serialized_bytes superficie oltre usize".into())
+            ClientError::InvalidResponse("surface serialized_bytes exceeds usize".into())
         })?,
     })
 }
@@ -1732,7 +1728,7 @@ fn client_cache_metrics(
     name: &str,
 ) -> Result<ClientCacheMetrics> {
     let metrics = metrics
-        .ok_or_else(|| ClientError::InvalidResponse(format!("cache metrics {name} assenti")))?;
+        .ok_or_else(|| ClientError::InvalidResponse(format!("missing cache metrics {name}")))?;
     Ok(ClientCacheMetrics {
         budget_bytes: metrics.budget_bytes,
         resident_bytes: metrics.resident_bytes,
@@ -1764,9 +1760,9 @@ fn wire_compression_tier(policy: CompressionTierPolicy) -> Result<WireCompressio
         } as i32,
         zstd_level: policy.zstd_level,
         min_input_bytes: u64::try_from(policy.min_input_bytes)
-            .map_err(|_| ClientError::InvalidResponse("min_input oltre u64".into()))?,
+            .map_err(|_| ClientError::InvalidResponse("min_input exceeds u64".into()))?,
         min_savings_bytes: u64::try_from(policy.min_savings_bytes)
-            .map_err(|_| ClientError::InvalidResponse("min_savings oltre u64".into()))?,
+            .map_err(|_| ClientError::InvalidResponse("min_savings exceeds u64".into()))?,
         dictionary_id: policy.dictionary_id,
     })
 }
@@ -1787,22 +1783,23 @@ fn compression_tier_from_wire(
     name: &str,
 ) -> Result<CompressionTierPolicy> {
     let policy = policy
-        .ok_or_else(|| ClientError::InvalidResponse(format!("compression tier {name} assente")))?;
+        .ok_or_else(|| ClientError::InvalidResponse(format!("missing compression tier {name}")))?;
     Ok(CompressionTierPolicy {
         mode: match WireCompressionMode::try_from(policy.mode) {
             Ok(WireCompressionMode::Raw) => CompressionMode::Raw,
             Ok(WireCompressionMode::AdaptiveZstandard) => CompressionMode::AdaptiveZstandard,
             Err(_) => {
                 return Err(ClientError::InvalidResponse(format!(
-                    "compression mode {name} sconosciuto"
+                    "unknown compression mode {name}"
                 )));
             }
         },
         zstd_level: policy.zstd_level,
         min_input_bytes: usize::try_from(policy.min_input_bytes)
-            .map_err(|_| ClientError::InvalidResponse(format!("min_input {name} oltre usize")))?,
-        min_savings_bytes: usize::try_from(policy.min_savings_bytes)
-            .map_err(|_| ClientError::InvalidResponse(format!("min_savings {name} oltre usize")))?,
+            .map_err(|_| ClientError::InvalidResponse(format!("min_input {name} exceeds usize")))?,
+        min_savings_bytes: usize::try_from(policy.min_savings_bytes).map_err(|_| {
+            ClientError::InvalidResponse(format!("min_savings {name} exceeds usize"))
+        })?,
         dictionary_id: policy.dictionary_id,
     })
 }
@@ -1811,7 +1808,7 @@ fn cost_estimate_from_wire(
     estimate: Option<aprodb_proto::WireCostEstimate>,
 ) -> Result<CostEstimate> {
     let estimate =
-        estimate.ok_or_else(|| ClientError::InvalidResponse("cost estimate assente".into()))?;
+        estimate.ok_or_else(|| ClientError::InvalidResponse("missing cost estimate".into()))?;
     Ok(CostEstimate {
         transfer_in_micros: estimate.transfer_in_micros,
         queue_wait_micros: estimate.queue_wait_micros,
@@ -1832,9 +1829,9 @@ fn unix_ms_after(duration: Duration) -> Result<u64> {
         .map_err(|error| ClientError::Runtime(error.to_string()))?;
     let deadline = now
         .checked_add(duration)
-        .ok_or_else(|| ClientError::Runtime("deadline oltre durata rappresentabile".into()))?;
+        .ok_or_else(|| ClientError::Runtime("deadline exceeds representable duration".into()))?;
     u64::try_from(deadline.as_millis())
-        .map_err(|_| ClientError::Runtime("deadline oltre u64".into()))
+        .map_err(|_| ClientError::Runtime("deadline exceeds u64".into()))
 }
 
 pub struct BlockingClient {

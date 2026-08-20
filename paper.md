@@ -1,273 +1,276 @@
-# AProDB — Specifica dell'architettura radiale adattiva
+# AProDB — Adaptive radial architecture specification
 
-**Stato:** baseline normativa stabilizzata per l'implementazione
-**Versione del documento:** 1.4
-**Data:** 19 agosto 2026
-**Lingua di riferimento:** italiano
-**Implementazione di riferimento:** Rust, edition 2024
+**State:** stabilized normative baseline for implementation
+**Document version:** 1.4
+**Date:** August 19, 2026
+**Reference language:** English
+**Reference implementation:** Rust, edition 2024
 
 > [!NOTE]
-> Questo documento è una specifica tecnica pubblica del prodotto obiettivo, non
-> un articolo accademico sottoposto a peer review e non una dichiarazione che
-> ogni funzione descritta sia già disponibile. Lo stato implementato e
-> collaudabile è documentato nel [manuale](manual.md); AProDB è in beta test.
+> This document is a public technical specification of the target product, not an academic peer-reviewed paper, nor a statement that every described function is already available. The implemented and testable state is documented in the [manual](manual.md); AProDB is in beta testing.
 
-## Sommario
+## Summary
 
-AProDB è un database specializzato per sistemi nei quali i dati attraversano un ciclo di lavorazione, hanno utilità non uniforme e perdono o acquistano valore con il tempo. Esempi sono piattaforme editoriali, raccolta e arricchimento di contenuti, osservabilità, intelligence, cataloghi in aggiornamento continuo, code di elaborazione e superfici applicative alimentate da eventi.
+AProDB is a specialized database for systems in which data move through a processing cycle, have non-uniform utility, and lose or gain value over time. Examples include editorial platforms, content collection and enrichment, observability, intelligence, continuously updating catalogs, processing queues, and application surfaces powered by events.
 
-La proprietà distintiva di AProDB non è la semplice presenza di una cache. Il motore considera nativi:
+The distinctive property of AProDB is not simply the presence of a cache. The engine natively considers:
 
-- freschezza;
-- probabilità di accesso;
-- urgenza di lavorazione;
-- stato di preparazione;
-- costo di ricostruzione;
-- forma più conveniente del dato;
-- componente hardware più adatto a servirlo o trasformarlo.
+- freshness;
+- probability of access;
+- urgency of processing;
+- state of preparation;
+- cost of reconstruction;
+- most convenient form of the data;
+- hardware component best suited to serve or transform it.
 
-Il record canonico rimane durevole. Attorno a esso AProDB costruisce proiezioni ricostruibili: indici, blocchi decompressi, rappresentazioni colonnari, code di lavoro e superfici già serializzate. CPU, cache hardware, RAM, NVMe, SSD, HDD e GPU sono trattati come una gerarchia eterogenea. Nessuna funzionalità corretta dipende dalla presenza di una GPU.
+The canonical record remains durable. Around it, AProDB builds reconstructible projections: indexes, decompressed blocks, columnar representations, work queues, and already serialized surfaces. CPU, hardware cache, RAM, NVMe, SSD, HDD, and GPU are treated as a heterogeneous hierarchy. No functionality depends on the presence of a GPU for correctness.
 
-Questa specifica stabilisce il prodotto obiettivo e separa esplicitamente:
+This specification defines the target product and explicitly separates:
 
-- ciò che deve appartenere alla prima versione server single-node;
-- ciò che può essere introdotto dopo senza cambiare il formato logico;
-- ciò che AProDB sceglie deliberatamente di non essere.
+- what must be included in the first single-node server version;
+- what can be introduced later without changing the logical format;
+- what AProDB deliberately chooses not to be.
 
-## 1. Regole normative
+## 1. Normative rules
 
-Nel documento:
+In this document:
 
-- **DEVE** e **NON DEVE** indicano un requisito necessario;
-- **DOVREBBE** indica la scelta predefinita, derogabile solo con misura e motivazione;
-- **PUÒ** indica una capacità opzionale;
-- **sperimentale** indica una funzione che non può essere necessaria per leggere, recuperare o amministrare i dati canonici.
+- **MUST** and **MUST NOT** indicate a mandatory requirement;
+- **SHOULD** indicates the default choice, which may be overridden only with justification and careful consideration;
+- **MAY** indicates an optional capability;
+- **experimental** indicates a feature that cannot be required to read, retrieve, or administer canonical data.
 
-Il paper è la fonte normativa dell'architettura. Il manuale descrive soltanto funzioni realmente disponibili. Il diario registra decisioni, implementazioni, test e deviazioni. Se il codice richiede una modifica a questa specifica, la modifica deve essere dichiarata con una decisione architetturale; non può avvenire silenziosamente.
+The paper is the normative source for the architecture.
+The manual describes only actually available functions.
+The journal records decisions, implementations, tests, and deviations.
+If the code requires a change to this specification, the change must be declared with an architectural decision; it cannot be made silently.
 
-## 2. Problema e motivazione
+## 2. Problem and motivation
 
-I database relazionali generalisti offrono SQL, join arbitrari, vincoli complessi, più livelli di isolamento e un ecosistema maturo. Queste proprietà sono preziose, ma non sempre coincidono con il percorso dominante di applicazioni come una redazione automatizzata:
+General-purpose relational databases offer SQL, arbitrary joins, complex constraints, multiple levels of isolation, and a mature ecosystem. These features are valuable, but do not always align with the typical needs of applications such as automated editorial systems:
 
-1. acquisire nuovi elementi;
-2. impedire o rilevare duplicati;
-3. assegnare lavoro a processi concorrenti;
-4. arricchire progressivamente gli elementi;
-5. pubblicare una vista ordinata e pronta;
-6. servire soprattutto elementi recenti;
-7. raffreddare e comprimere ciò che perde probabilità di accesso;
-8. riattivare elementi vecchi quando tornano rilevanti.
+1. acquire new elements;
+2. prevent or detect duplicates;
+3. assign work to concurrent processes;
+4. progressively enrich the elements;
+5. publish an orderly and ready view;
+6. serve primarily recent elements;
+7. cool and compress data that lose likelihood of access;
+8. reactivate old elements when they become relevant.
 
-L'analisi statica del server Commit ha mostrato un esempio concreto: PostgreSQL coordina correttamente worker concorrenti mediante transazioni, advisory lock, SKIP LOCKED, vincoli unici e lease; la superficie pubblica è invece una vista materializzata ampia, rinfrescata periodicamente nella sua interezza. AProDB non nasce per copiare Commit né per sostituire PostgreSQL senza equivalenti di correttezza. Nasce per rendere incrementali e native le operazioni ricorrenti di questa classe di sistemi.
+The static analysis of the Commit server showed a concrete example: PostgreSQL correctly coordinates concurrent workers through transactions, advisory locks, SKIP LOCKED, unique constraints, and leases; the public surface, instead, is a large materialized view that is periodically refreshed in its entirety. AProDB is not intended to copy Commit or to replace PostgreSQL without equivalent correctness. It is designed to make the recurring operations of this class of systems both incremental and native.
 
-## 3. Obiettivi
+## 3. Objectives
 
-AProDB DEVE:
+AProDB MUST:
 
-1. funzionare su una macchina priva di GPU;
-2. offrire un servizio centrale sicuro per più processi client;
-3. garantire persistenza e recupero verificabili;
-4. rendere atomici claim, lease, completamento e confronto di versione;
-5. privilegiare letture puntuali, finestre temporali, code ordinate e superfici incrementali;
-6. mantenere memoria e lavoro in background entro budget espliciti;
-7. comprimere adattivamente tutti i dati che attraversano il percorso persistente, conservandoli grezzi quando comprimere sarebbe svantaggioso;
-8. sfruttare layout favorevoli alle cache CPU;
-9. usare la GPU soltanto quando il costo totale previsto è inferiore al percorso CPU;
-10. esporre staleness, watermark, durabilità e compromessi invece di nasconderli;
-11. poter ricostruire ogni cache o proiezione partendo dallo stato canonico;
-12. offrire benchmark riproducibili, separando modalità embedded e client/server.
+1. run on a machine without a GPU;
+2. offer a secure central service for multiple client processes;
+3. ensure verifiable persistence and recovery;
+4. make claims, leases, completion, and version comparison atomic;
+5. give priority to point reads, time windows, ordered queues, and incremental surfaces;
+6. keep memory and background work within explicit budgets;
+7. adaptively compress all data that traverse the persistent path, keeping them uncompressed when compression would be disadvantageous;
+8. use CPU cache-friendly layouts;
+9. use the GPU only when the total expected cost is lower than the CPU path;
+10. expose staleness, watermark, durability, and trade-offs instead of hiding them;
+11. be able to reconstruct every cache or projection starting from the canonical state;
+12. offer reproducible benchmarks, separating embedded and client/server modes.
 
-## 4. Non-obiettivi della prima versione
+## 4. Non-objectives of the first version
 
-AProDB 1.x NON DEVE dichiarare:
+AProDB 1.x MUST NOT declare:
 
-- compatibilità SQL generale;
-- join arbitrari;
-- transazioni serializzabili fra shard;
-- sostituzione universale di PostgreSQL, MySQL o MariaDB;
-- durabilità affidata alla VRAM;
-- accelerazione garantita per il solo fatto di usare una GPU;
-- replica multi-leader;
-- esecuzione nel database di codice applicativo non fidato;
-- memoria illimitata o dataset necessariamente residente per intero in RAM;
-- risultati prestazionali estrapolati da benchmark in-process verso server interrogati via rete.
+- general SQL compatibility;
+- arbitrary joins;
+- serializable transactions between shards;
+- universal replacement of PostgreSQL, MySQL, or MariaDB;
+- durability entrusted to VRAM;
+- guaranteed acceleration solely by using a GPU;
+- multi-leader replication;
+- execution of untrusted application code in the database;
+- unlimited memory or datasets necessarily fully resident in RAM;
+- performance results extrapolated from in-process benchmarks to servers queried over the network.
 
-Un gateway SQL limitato, un gateway RESP3 e la replica Raft sono estensioni successive, non prerequisiti del nucleo single-node.
+A limited SQL gateway, RESP3 gateway, and Raft replica are successive extensions, not prerequisites of the single-node core.
 
-## 5. Modello concettuale: sfera, raggio e settori
+## 5. Conceptual model: sphere, radius, and sectors
 
-### 5.1 Nucleo
+### 5.1 Core
 
-Il nucleo è il piano di controllo. Contiene:
+The core is the control plane.
+It contains:
 
-- ordinamento degli eventi;
-- routing agli shard;
-- adattatore di durabilità e change log;
-- versioni e fencing token;
-- code, claim e lease;
-- budgeting e backpressure;
-- catalogo di collezioni, indici e proiezioni;
-- scheduler CPU/GPU;
-- metriche e stato operativo.
+- event ordering;
+- routing to shards;
+- durability adapter and change log;
+- versions and fencing tokens;
+- queues, claim, and lease;
+- budgeting and backpressure;
+- catalog of collections, indexes, and projections;
+- CPU/GPU scheduler;
+- metrics and operational state.
 
-I processi di dominio, come bibliotecari o redazioni, rimangono client esterni. Il nucleo ne coordina il lavoro, ma non incorpora automaticamente la loro logica. Operatori interni ammessi sono soltanto operatori deterministici e controllati, come filtri, ordinamento, top-k, hashing, compressione e ricerca vettoriale.
+Domain processes, such as librarians or editorial teams, remain external clients.
+The core coordinates their work, but does not automatically incorporate their logic.
+Internal operators permitted are only deterministic and controlled operators, such as filters, sorting, top-k, hashing, compression, and vector search.
 
-### 5.2 Strati radiali
+### 5.2 Radial layers
 
-Gli strati sono logici; possono condividere lo stesso dispositivo fisico:
+The layers are logical; they can share the same physical device:
 
-| Strato | Contenuto prevalente | Forma | Durabilità |
-|---|---|---|---|
-| Superficie | Risposte e record pronti | Non compressa o già serializzata | Ricostruibile |
-| Hot | Record e colonne ad alta probabilità d'uso | Grezza o compressione velocissima | Canonica o ricostruibile |
-| Warm | Blocchi recenti e indici secondari | Zstandard rapido | Canonica |
-| Cold | Segmenti poco consultati | Zstandard più denso, dizionari | Canonica |
-| Archive | Dati storici | Segmenti grandi, compressione forte | Canonica |
+| Layer   | Prevalent Content          | Form                                   | Durability       |
+|--------|----------------------------|----------------------------------------|------------------|
+| Surface| Ready responses and records| Uncompressed or already serialized     | Reconstructible  |
+| Hot    | Records and columns with high probability of access | Raw or very fast compression             | Canonical or reconstructible |
+| Warm   | Recent blocks and secondary indexes      | Fast Zstandard                          | Canonical        |
+| Cold   | Infrequently accessed segments           | Denser Zstandard, dictionaries          | Canonical        |
+| Archive| Historical data                          | Large segments, strong compression      | Canonical        |
 
-La superficie non è la fonte di verità. La sua perdita può peggiorare temporaneamente le prestazioni, mai perdere una scrittura confermata secondo la durabilità richiesta.
+The surface is not the source of truth. Its loss may temporarily degrade performance, but it will never cause the loss of a committed write according to the required durability.
 
-### 5.3 Settori
+### 5.3 Sectors
 
-Il raggio esprime prontezza e latenza attesa; il settore esprime finalità o fase. Uno stesso record può alimentare settori diversi:
+The radius expresses readiness and expected latency; the sector expresses purpose or phase. The same record can feed different sectors:
 
-- acquisizione;
-- deduplicazione;
-- classificazione;
-- traduzione;
-- moderazione;
-- pubblicazione;
-- commenti;
-- analisi;
-- archivio.
+- acquisition;
+- deduplication;
+- classification;
+- translation;
+- moderation;
+- publication;
+- comments;
+- analysis;
+- archive.
 
-Questo evita l'errore di rappresentare il ciclo di vita con una sola temperatura. Una notizia può essere calda per un classificatore ma non ancora presente sulla superficie pubblica.
+This prevents the mistake of representing the lifecycle with only one temperature. A news item may be hot for a classifier but not yet present on the public surface.
 
-### 5.4 Due superfici
+### 5.4 Two surfaces
 
-AProDB distingue:
+AProDB distinguishes:
 
-- **superficie di lavoro:** elementi che un worker deve reclamare immediatamente;
-- **superficie di lettura:** elementi pronti da mostrare a un utente o consumare da un servizio.
+- **work surface:** elements that a worker must claim immediately;
+- **read surface:** elements ready to display to a user or consume from a service.
 
-Le due superfici hanno politiche, ordinamenti, consistenza e budget indipendenti.
+The two surfaces have independent policies, orderings, consistency, and budgets.
 
-## 6. Modello del calore radiale
+## 6. Radial heat model
 
-Ogni record possiede un descrittore radiale separato dal payload. Il descrittore contiene almeno:
+Each record has a radial descriptor separated from the payload. The descriptor contains at least:
 
-- tempo di creazione e ultimo aggiornamento;
-- stima decadente della frequenza di accesso;
-- ultimo accesso campionato;
-- emivita di freschezza definita dalla collezione;
-- urgenza e scadenza opzionali;
-- stato di lavorazione;
-- prontezza per ciascuna proiezione;
-- costo stimato di ricostruzione;
-- dimensione logica e fisica;
-- classe di storage;
-- pin amministrativo;
-- versione canonica.
+- creation time and last update;
+- decaying estimate of access frequency;
+- last sampled access;
+- freshness half-life defined by the collection;
+- optional urgency and expiration;
+- processing state;
+- readiness for each projection;
+- estimated reconstruction cost;
+- logical and physical size;
+- storage class;
+- administrative pin;
+- canonical version.
 
-Il punteggio iniziale è minimo:
+The initial score is minimal:
 
     radial_score = wf * freshness + wu * workflow_urgency
 
-con componenti nell'intervallo da zero a uno; il pin amministrativo prevale sul punteggio. La freschezza usa decadimento esponenziale rispetto all'emivita della collezione. Urgenza e stato di lavorazione sono segnali espliciti, non deduzioni opache.
+with components in the range from zero to one; the administrative pin overrides the score. Freshness uses exponential decay relative to the collection's half-life. Urgency and processing state are explicit signals, not opaque inferences.
 
-Segnali aggiuntivi — calore d'accesso con contatore probabilistico decadente, prontezza, costo di ricostruzione e pressione di dimensione — sono previsti dal descrittore ma entrano nel punteggio soltanto quando misure dimostrano che la versione minima colloca male i dati. Ogni segnale aggiunto dichiara peso, motivazione e telemetria.
+Additional signals — access heat with a decaying probability counter, readiness, reconstruction cost, and size pressure — are specified by the descriptor but are only included in the score when measurements show that the minimum version misplaces the data. Each additional signal specifies weight, rationale, and telemetry.
 
-Il punteggio NON DEVE decidere correttezza, autorizzazione o cancellazione canonica. Decide ammissione, promozione, prefetch e vittima di cache.
+The score MUST NOT determine correctness, authorization, or canonical deletion. It determines admission, promotion, prefetch, and cache victim selection.
 
-Devono esistere:
+The following must exist:
 
-- soglie diverse per promozione e retrocessione;
-- permanenza minima nello strato;
-- limite di migrazioni per intervallo;
-- protezione contro scansioni una tantum;
-- pin con scadenza;
-- telemetria della motivazione di ogni decisione.
+- distinct thresholds for promotion and demotion;
+- minimum residency in the layer;
+- migration limit per interval;
+- protection against one-off scans;
+- pin with expiration;
+- telemetry recording the reason for each decision.
 
-I pesi sono configurabili per collezione. L'autotuning può proporli o variarli entro limiti, ma deve poter essere disattivato e deve registrare ogni cambiamento.
+Weights are configurable per collection. Autotuning may propose or vary them within limits, but it must be able to be disabled and must log every change.
 
-## 7. Modello logico dei dati
+## 7. Logical data model
 
-### 7.1 Identità
+### 7.1 Identity
 
-L'identità completa è:
+The complete identity is:
 
     tenant / namespace / collection / partition / key
 
-- tenant isola quote e autorizzazioni;
-- namespace raggruppa applicazioni;
-- collection definisce schema e policy;
-- partition è l'unità di atomicità e routing;
-- key identifica il record.
+- tenant isolates quotas and authorizations;
+- namespace groups applications;
+- collection defines schema and policy;
+- partition is the unit of atomicity and routing;
+- key identifies the record.
 
-Le chiavi sono byte string con limite configurabile. Le convenzioni testuali non devono essere necessarie al motore.
+Keys are byte strings with a configurable limit. Textual conventions should not be required by the engine.
 
-### 7.2 Record canonico
+### 7.2 Canonical record
 
-Il record canonico contiene:
+The canonical record contains:
 
-- identità;
-- payload tipizzato oppure opaco;
+- identity;
+- typed or opaque payload;
 - content type;
-- versione;
-- created_at e updated_at assegnati dal server;
-- TTL opzionale;
-- metadata utente con limiti;
-- descrittore di workflow;
-- idempotency key opzionale;
-- checksum e riferimento al dizionario di compressione;
-- tombstone in caso di cancellazione.
+- version;
+- created_at and updated_at assigned by the server;
+- optional TTL;
+- user metadata with limits;
+- workflow descriptor;
+- optional idempotency key;
+- checksum and reference to compression dictionary;
+- tombstone in case of deletion.
 
-I tipi minimi sono:
+The minimal types are:
 
 - bytes;
 - UTF-8 text;
-- signed integer 64 bit;
-- float 64 bit finito;
+- signed 64-bit integer;
+- finite 64-bit float;
 - boolean;
 - timestamp;
-- vettore float 32 bit con dimensione dichiarata;
-- document strutturato con schema versionato;
-- riferimento a blob.
+- 32-bit float vector with declared size;
+- structured document with versioned schema;
+- reference to blob.
 
-Oggetti grandi superano una soglia configurabile e vengono collocati in blob segmentati. Record canonico, indici e change log conservano riferimenti, non copie ripetute del corpo.
+Large objects exceeding a configurable threshold are placed in segmented blobs. The canonical record, indexes, and change log retain references rather than repeated copies of the body.
 
 ### 7.3 Schema
 
-Una collection può essere:
+A collection can be:
 
-- schemaless, con payload opaco;
-- typed, con campi e tipi dichiarati;
-- columnar, destinata a batch e proiezioni.
+- schemaless, with opaque payload;
+- typed, with declared fields and types;
+- columnar, for batches and projections.
 
-Le evoluzioni ammesse senza riscrittura sono aggiunta di campi opzionali e nuovi indici derivati. Modifiche incompatibili richiedono nuova versione di schema e migrazione esplicita. Il file format non deve dipendere dalla disposizione in memoria di una struct Rust.
+Allowed evolutions without rewriting are the addition of optional fields and new derived indexes. Incompatible changes require a new schema version and explicit migration. The file format must not depend on the in-memory layout of a Rust struct.
 
-### 7.4 Versioni
+### 7.4 Versions
 
-La versione è una tupla ordinabile:
+A version is an ordered tuple:
 
     epoch, shard_id, sequence
 
-Epoch cambia quando un'autorità di scrittura viene ricreata o promossa. Sequence cresce monotonicamente nello shard. Una versione non viene riutilizzata.
+Epoch changes when a write authority is recreated or promoted. Sequence increases monotonically within the shard. A version is never reused.
 
-## 8. Modello delle operazioni
+## 8. Operation model
 
-### 8.1 Operazioni fondamentali
+### 8.1 Fundamental operations
 
-La prima versione server DEVE offrire:
+The first server version MUST offer:
 
 - Put;
 - Get;
 - GetBatch;
 - Delete;
 - CompareAndSwap;
-- AtomicBatch entro una partizione;
-- ScanPrefix limitata;
-- ScanTimeRange su indice;
-- QueryIndex su indici dichiarati;
+- AtomicBatch within a partition;
+- Limited ScanPrefix;
+- ScanTimeRange on index;
+- QueryIndex on declared indices;
 - Append;
 - Claim;
 - Heartbeat;
@@ -278,893 +281,923 @@ La prima versione server DEVE offrire:
 - SubscribeChanges;
 - Sync;
 - CreateCheckpoint;
-- Stats e ExplainPlacement.
+- Stats and ExplainPlacement.
 
-Ogni comando di mutazione può portare una idempotency key. Il server conserva l'esito entro una finestra configurata e restituisce lo stesso esito ai retry.
+Each mutation command can carry an idempotency key. The server retains the outcome within a configured window and returns the same outcome on retry.
 
-### 8.2 Operazioni non offerte
+### 8.2 Operations not offered
 
-Non esistono query arbitrarie su campi non indicizzati né join impliciti. Una richiesta non supportata deve fallire chiaramente, non degradare in una scansione completa non dichiarata.
+There are no arbitrary queries on non-indexed fields nor implicit joins. An unsupported request must clearly fail, rather than degrade into an undeclared full scan.
 
-### 8.3 Claim e lease
+### 8.3 Claim and lease
 
-Claim seleziona atomicamente elementi eleggibili, ne cambia lo stato e restituisce:
+Claim atomically selects eligible items, changes their status, and returns:
 
-- record e versione;
-- lease_id casuale;
-- fencing_token monotono;
+- record and version;
+- random lease_id;
+- monotonic fencing_token;
 - lease_deadline;
 - server_time;
 - retry metadata.
 
-Heartbeat estende soltanto un lease ancora valido. Complete e Fail richiedono lease_id e fencing_token. Un worker obsoleto non può sovrascrivere il risultato di un worker subentrato.
+Heartbeat only extends a still-valid lease. Complete and Fail require lease_id and fencing_token. An obsolete worker cannot overwrite the result of a successor worker.
 
-Dopo un riavvio, i lease persistiti vengono rivalutati usando tempo del server e policy della collection. Il tempo monotono è usato durante il processo; la scadenza persistita usa UTC e tollera un intervallo di sicurezza configurato. L'orologio non deve essere usato per ordinare scritture canoniche: a tale scopo serve sequence.
+After a restart, persisted leases are re-evaluated using server time and the collection's policy. Monotonic time is used during processing; persisted expiration uses UTC and allows for a configured safety interval. The clock must not be used to order canonical writes: sequence numbers serve this purpose.
 
-La semantica verso worker esterni è at-least-once con idempotenza. AProDB non promette exactly-once per effetti prodotti fuori dal database.
+The semantics for external workers are at-least-once with idempotency. AProDB does not promise exactly-once for effects produced outside the database.
 
-## 9. Architettura di processo
+## 9. Process architecture
 
-### 9.1 Modalità server
+### 9.1 Server mode
 
-La modalità raccomandata è un daemon che possiede in esclusiva la directory dati. I client locali usano Unix domain socket su Linux/macOS e named pipe su Windows quando disponibile; TCP è disponibile per accesso remoto.
+The recommended mode is a daemon that exclusively owns the data directory.
+Local clients use Unix domain sockets on Linux/macOS and named pipes on Windows when available; TCP is available for remote access.
 
-All'apertura il server acquisisce un lock esclusivo di processo. Una seconda istanza sulla stessa directory deve rifiutarsi di partire. Il lock non sostituisce durabilità e recovery del backend.
+At startup, the server acquires an exclusive process lock. A second instance on the same directory must refuse to start and must exit. The lock does not substitute for backend durability and recovery.
 
-### 9.2 Modalità embedded
+### 9.2 Embedded mode
 
-La libreria embedded rimane supportata per test e applicazioni a processo singolo. Usa lo stesso storage engine e acquisisce lo stesso lock. Non consente condivisione della directory fra processi.
+The embedded library remains supported for single-process testing and applications. It uses the same storage engine and acquires the same lock. It does not allow the directory to be shared between processes.
 
-### 9.3 Componenti
+### 9.3 Components
 
-Il processo contiene:
+The process contains:
 
-- acceptor e decoder del protocollo;
-- autenticazione e quote;
-- router delle partizioni;
-- actor di scrittura per shard;
-- snapshot di lettura;
-- adattatore storage e group commit;
-- catalogo e change log logico;
-- working set e snapshot del backend;
-- indici;
-- cache manager radiale;
+- protocol acceptor and decoder;
+- authentication and quotas;
+- partition router;
+- write actor per shard;
+- read snapshots;
+- storage adapter and group commit;
+- catalog and logical change log;
+- working set and backend snapshot;
+- indexes;
+- radial cache manager;
 - projection builder;
-- compaction e tiering scheduler;
+- compaction and tiering scheduler;
 - CPU compute pool;
-- GPU scheduler opzionale;
-- metriche, tracing e amministrazione.
+- optional GPU scheduler;
+- metrics, tracing, and administration.
 
-I thread di rete, scrittura, compaction e calcolo non devono condividere un unico pool non limitato. Il database deve evitare oversubscription fra runtime asincrono, Rayon e driver GPU.
+Network, write, compaction, and compute threads must not share a single, unlimited pool. The database must avoid oversubscription between the asynchronous runtime, Rayon, and GPU drivers.
 
 ### 9.4 Workspace Rust
 
-La migrazione dal crate unico a un workspace dovrebbe produrre confini aciclici:
+Migration from a single crate to a workspace should produce acyclic boundaries:
 
-| Crate | Responsabilità |
-|---|---|
-| aprodb-types | identificatori, record envelope, versioni, errori e configurazione condivisa |
-| aprodb-storage | contratto di storage, adattatore sul backend incorporato, checkpoint, blob, codec e recovery |
-| aprodb-engine | shard actor, working set, cache, indici, workflow, query e proiezioni |
-| aprodb-compute | operatori CPU e backend GPU opzionali |
-| aprodb-proto | schema wire e compatibilità protocollo |
-| aprodb-client | client asincrono e bloccante |
-| aprodb-server | daemon, trasporti, auth, quote e amministrazione |
-| aprodb-cli | comandi utente e operativi |
-| aprodb | facade compatibile e modalità embedded |
+| Crate           | Responsibility                                             |
+|-----------------|-----------------------------------------------------------|
+| aprodb-types    | identifiers, record envelope, versions, errors, and shared configuration |
+| aprodb-storage  | storage contract, built-in backend adapter, checkpoint, blob, codec, and recovery |
+| aprodb-engine   | shard actor, working set, cache, indexes, workflow, query, and projections |
+| aprodb-compute  | optional CPU operators and GPU backends                    |
+| aprodb-proto    | wire schema and protocol compatibility                     |
+| aprodb-client   | asynchronous and blocking client                           |
+| aprodb-server   | daemon, transports, auth, quotas, and administration       |
+| aprodb-cli      | user and operational commands                              |
+| aprodb          | compatible facade and embedded mode                        |
 
-Il grafo desiderato è types alla base; storage e compute dipendono da types; engine dipende da types, storage e compute; protocollo non dipende dal server; client e server dipendono dal protocollo.
+The desired graph is types at the base; storage and compute depend on types; engine depends on types, storage, and compute; protocol does not depend on server; client and server depend on protocol.
 
-Rust unsafe è vietato per default. Quando necessario per I/O, SIMD o interoperabilità GPU deve essere confinato in moduli piccoli, accompagnato da invarianti di sicurezza, test Miri dove applicabile e fallback safe. Le feature GPU, direct I/O, encryption e replica devono compilare separatamente; la build CPU-only resta il gate principale.
+Rust unsafe is prohibited by default. When necessary for I/O, SIMD, or GPU interoperability, it must be confined to small modules, accompanied by safety invariants, Miri tests where applicable, and a safe fallback. GPU features, direct I/O, encryption, and replication must compile separately; the CPU-only build remains the main gate.
 
-## 10. Concorrenza e consistenza
+## 10. Concurrency and consistency
 
 ### 10.1 Single writer per shard
 
-Ogni shard ha un solo ordinatore logico delle mutazioni. Non è necessario dedicare permanentemente un thread a ogni shard: più actor possono essere eseguiti da un numero limitato di worker, ma due mutazioni dello stesso shard non possono essere applicate fuori ordine.
+Each shard has a single logical sequencer for mutations. It is not necessary to permanently dedicate a thread to every shard: multiple actors can be run by a limited number of workers, but two mutations of the same shard cannot be applied out of order.
 
-Le letture usano strutture immutabili o snapshot pubblicati atomicamente. Il percorso di lettura non aggiorna una lista LRU globale a ogni hit; il campionamento del calore avviene tramite contatori locali e aggregazione periodica.
+Reads use immutable structures or snapshots published atomically. The read path does not update a global LRU list on each hit; heat sampling is performed using local counters and periodic aggregation.
 
-### 10.2 Garanzie
+### 10.2 Guarantees
 
-Sul leader single-node:
+On a single-node leader:
 
-- Get dopo Put confermato vede almeno quella versione;
-- CompareAndSwap è lineare entro la chiave;
-- AtomicBatch è atomico entro una partizione;
-- Claim è atomico rispetto ad altri Claim della stessa partizione;
-- snapshot di una singola partizione è coerente;
-- superfici e indici derivati possono essere in ritardo, ma espongono watermark e versione.
+- A Get after a confirmed Put sees at least that version;
+- CompareAndSwap is linearizable within the key;
+- AtomicBatch is atomic within a partition;
+- Claim is atomic with respect to other Claims in the same partition;
+- a snapshot of a single partition is consistent;
+- surfaces and derived indices may lag behind, but they expose watermark and version.
 
-AProDB 1.x non offre una transazione serializzabile che coinvolga partizioni diverse. Operazioni che richiedono atomicità devono usare una chiave di partizione comune oppure un workflow con outbox, compensazione e idempotenza.
+AProDB 1.x does not offer a serializable transaction that spans different partitions. Operations requiring atomicity must use a common partition key or a workflow with outbox, compensation, and idempotency.
 
-### 10.3 ACID dichiarato
+### 10.3 Declared ACID properties
 
-Entro una partizione:
+Within a partition:
 
-- **Atomicità:** il batch appare interamente o non appare;
-- **Consistenza:** versioni, schema, vincoli locali e transizioni sono verificati;
-- **Isolamento:** le mutazioni sono serializzate dall'actor e le letture vedono snapshot pubblicati;
-- **Durabilità:** dipende dalla modalità esplicitamente richiesta.
+- **Atomicity:** the batch appears entirely or not at all;
+- **Consistency:** versions, schema, local constraints, and transitions are verified;
+- **Isolation:** mutations are serialized by the actor, and reads observe published snapshots;
+- **Durability:** depends on the mode explicitly requested.
 
-La documentazione non deve usare la parola ACID senza indicare questo perimetro.
+Documentation must not use the word ACID without specifying this scope.
 
 ### 10.4 Backpressure
 
-Ogni coda è limitata. Quando persistenza, compaction, proiezioni, memoria o GPU accumulano debito, il server rallenta o rifiuta nuove operazioni con errore ritentabile e retry-after. Non deve continuare ad allocare memoria fino all'intervento dell'OOM killer.
+Each queue is limited. When persistence, compaction, projections, memory, or GPU accumulate debt, the server slows down or refuses new operations with a retry-after and a retriable error. It must not continue allocating memory until the OOM killer intervenes.
 
-## 11. Pipeline di scrittura
+## 11. Write pipeline
 
-Una mutazione segue questo ordine logico:
+A mutation follows this logical order:
 
-1. decodifica con limite di dimensione;
-2. autenticazione, autorizzazione e quota;
-3. validazione di chiave, schema e idempotenza;
-4. routing a partizione e shard;
-5. controllo di versione o lease;
-6. assegnazione della sequence;
-7. costruzione del batch atomico con record, catalogo, indici essenziali e change log;
-8. commit del backend secondo durabilità;
-9. pubblicazione del working set aggiornato;
-10. pubblicazione del nuovo snapshot di lettura;
-11. notifica dei consumer del change log;
-12. risposta con versione e durability receipt.
+1. decode with size limit;
+2. authentication, authorization, and quota;
+3. key, schema, and idempotency validation;
+4. partition and shard routing;
+5. version or lease check;
+6. sequence assignment;
+7. atomic batch construction with record, catalog, essential indexes, and change log;
+8. backend commit according to durability;
+9. publication of the updated working set;
+10. publication of the new read snapshot;
+11. notification to change log consumers;
+12. response with version and durability receipt.
 
-Il punto 8 precede la conferma nelle modalità durevoli. Indici e superfici possono aggiornarsi dopo la conferma; il record canonico no.
+Step 8 precedes confirmation in durable modes. Indexes and surfaces may be updated after confirmation; the canonical record must not.
 
-### 11.1 Durabilità
+### 11.1 Durability
 
-Le modalità pubbliche sono:
+The public modes are:
 
-| Modalità | Conferma | Garanzia |
-|---|---|---|
-| Durable | dopo il punto persistente documentato dal backend, con finestra di group commit configurabile | sopravvive a crash di processo e perdita di alimentazione nei limiti dichiarati da backend, OS e dispositivo |
-| Relaxed | dopo consegna al sistema operativo | può perdere la coda recente in un power loss |
-| Ephemeral | solo memoria | nessuna persistenza |
+| Mode      | Confirmation                          | Guarantee                                                                 |
+|-----------|----------------------------------------|---------------------------------------------------------------------------|
+| Durable   | after the persistent point documented by the backend, with configurable group commit window | survives process crash and power loss within the limits declared by backend, OS, and device |
+| Relaxed   | after delivery to the operating system | may lose the recent tail in a power loss                                   |
+| Ephemeral | memory only                           | no persistence                                                            |
 
-Durable è il valore raccomandato per servizi concorrenti: la finestra di group commit ammortizza la latenza e una finestra pari a zero equivale a un flush per richiesta. La receipt include shard, sequence, modalità applicata e durable watermark noto. Il server non deve promuovere una modalità meno forte di quella richiesta.
+Durable is the recommended value for concurrent services: the group commit window amortizes the latency, and a window of zero is equivalent to a flush per request.
+The receipt includes shard, sequence, applied mode, and known durable watermark.
+The server must not promote a mode less strong than the one requested.
 
-Le garanzie reali dipendono dal rispetto di flush/barrier da parte di filesystem, virtualizzazione e dispositivo. AProDB deve documentare e testare la piattaforma; non può promettere più di quanto il livello sottostante garantisca.
+Real guarantees depend on proper handling of flush/barrier by the filesystem, virtualization, and device.
+AProDB must document and test the platform; it cannot promise more than what the underlying layer guarantees.
 
 ### 11.2 Group commit
 
-L'adattatore storage raccoglie richieste per una finestra massima e per un limite di byte, scegliendo il primo limite raggiunto. Una richiesta può forzare il prossimo commit persistente; una finestra pari a zero evita attesa intenzionale. La finestra è configurabile e osservabile. L'adattatore non deve promettere batching o flush che il backend non espone.
+The storage adapter collects requests up to a maximum window and byte limit, choosing whichever limit is reached first.
+A request can force the next commit to persist; a window of zero avoids intentional waiting.
+The window is configurable and observable.
+The adapter must not promise batching or flushes that the backend does not expose.
 
-## 12. Pipeline di lettura
+## 12. Read pipeline
 
-Get esegue:
+Get performs:
 
 1. routing;
-2. controllo della microcache di fingerprint, se abilitata;
-3. ricerca nel working set o snapshot del backend;
-4. consultazione degli indici logici e fisici disponibili;
-5. controllo cache oggetti o blocchi decompressi;
-6. lettura del record o blocco tramite l'adattatore;
-7. verifica di integrità;
-8. decompressione con contesto del worker;
-9. decodifica e verifica versione;
-10. campionamento asincrono del calore;
-11. eventuale ammissione in cache.
+2. fingerprint micro-cache check, if enabled;
+3. search in the backend working set or snapshot;
+4. consultation of available logical and physical indices;
+5. cache check for decompressed objects or blocks;
+6. reading the record or block via the adapter;
+7. integrity check;
+8. decompression with worker context;
+9. decoding and version check;
+10. asynchronous heat sampling;
+11. possible cache admission.
 
-La lettura di una superficie usa una generazione immutabile già pronta. Una generazione viene sostituita con uno swap atomico; i lettori in corso possono terminare sulla generazione precedente.
+Reading a surface uses a ready immutable generation. A generation is replaced by an atomic swap; in-progress readers can complete on the previous generation.
 
-Una risposta derivata deve includere:
+A derived response must include:
 
 - projection_generation;
-- source_watermark per shard interessato;
+- source_watermark for the affected shard;
 - generated_at;
 - stale_by;
-- complete o partial;
-- eventuali errori di settore.
+- complete or partial;
+- any sector errors.
 
-## 13. Memoria e cache
+## 13. Memory and cache
 
-### 13.1 Cache hardware CPU
+### 13.1 CPU hardware cache
 
-L1, L2 e L3 sono amministrate dal processore. AProDB non tenta di bloccarvi record. Il motore rende favorevole il percorso mediante:
+L1, L2, and L3 are managed by the processor. AProDB does not attempt to lock records there. The engine optimizes the path by:
 
-- strutture contigue;
-- separazione fra campi hot e cold;
-- struct-of-arrays per scansioni;
-- bucket e descrittori compatti;
+- contiguous structures;
+- separation between hot and cold fields;
+- struct-of-arrays for scans;
+- compact buckets and descriptors;
 - batching;
-- allocazioni ridotte;
-- code e contatori per worker;
-- allineamento per evitare false sharing;
-- prefetch soltanto quando misurato;
-- sharding coerente con topologia CPU e NUMA.
+- reduced allocations;
+- queues and counters for workers;
+- alignment to avoid false sharing;
+- prefetching only when measured;
+- sharding consistent with CPU and NUMA topology.
 
-Il motore rileva dimensioni cache e topologia, ma non codifica come universale una cache line o una capacità. Le strutture devono rimanere corrette su hardware non rilevabile.
+The engine detects cache and topology sizes, but does not encode any cache line or capacity as universal. The structures must remain correct on hardware that cannot be detected.
 
-Indicativamente:
+Indicatively:
 
-- L1/L2 beneficiano loop, fingerprint, code e piccoli bucket locali;
-- L3 beneficia directory dei segmenti, filtri e parti calde degli indici;
-- RAM contiene payload, working set, superfici e blocchi.
+- L1/L2 benefit loops, fingerprints, code, and small local buckets;
+- L3 benefits directory segments, filters, and hot parts of the indexes;
+- RAM contains payload, working set, surfaces, and blocks.
 
-### 13.2 Budget globale
+### 13.2 Global budget
 
-Il server determina un effective memory limit dal minimo fra configurazione, limite container/job e memoria fisica disponibile. Se l'utente non imposta un budget, il valore iniziale prudente è il 50% del limite effettivo rilevato. Il valore viene mostrato all'avvio e può essere rifiutato in ambienti nei quali la rilevazione è incerta.
+The server determines an effective memory limit as the minimum between configuration, container/job limit, and available physical memory. If the user does not set a budget, the conservative initial value is 50% of the effective limit detected. The value is shown at startup and may be declined in environments where detection is uncertain.
 
-Pool iniziali, riallocabili entro minimi e massimi:
+Initial pools, reallocatable within minimum and maximum boundaries:
 
-| Pool | Quota iniziale |
+| Pool | Initial quota |
 |---|---:|
-| Working set e write buffers | 20% |
-| Indici e metadata | 20% |
-| Cache oggetti hot | 20% |
-| Cache blocchi decompressi | 15% |
-| Superfici | 15% |
-| I/O, compressione e riserva di emergenza | 10% |
+| Working set and write buffers | 20% |
+| Indexes and metadata | 20% |
+| Hot object cache | 20% |
+| Decompressed block cache | 15% |
+| Surfaces | 15% |
+| I/O, compression, and emergency reserve | 10% |
 
-Il totale comprende overhead misurabile, non soltanto payload. Iterator, batch e risposte in volo devono essere contabilizzati. Nessun pool può prendere la riserva di emergenza.
+The total includes measurable overhead, not just payload. Iterators, batches, and in-flight responses must be accounted for. No pool may take from the emergency reserve.
 
-### 13.3 Cache specializzate
+### 13.3 Specialized caches
 
-AProDB usa cache separate:
+AProDB uses separate caches:
 
-1. **metadata cache:** directory, footer, Bloom filter e radiale;
-2. **object cache:** valori decodificati frequentemente;
-3. **decompressed block cache:** blocchi verificati e decompressi;
-4. **compressed block cache opzionale:** utile soprattutto con direct I/O;
-5. **surface cache:** generazioni già serializzate;
-6. **negative cache:** assenze con TTL breve e versione del catalogo;
-7. **VRAM cache:** proiezioni GPU ricostruibili.
+1. **metadata cache:** directory, footer, Bloom filter, and radial;
+2. **object cache:** frequently decoded values;
+3. **decompressed block cache:** verified and decompressed blocks;
+4. **optional compressed block cache:** especially useful with direct I/O;
+5. **surface cache:** generations already serialized;
+6. **negative cache:** absences with a short TTL and catalog version;
+7. **VRAM cache:** reconstructable GPU projections.
 
-Una scansione non deve espellere automaticamente il working set puntuale. Le scansioni usano una classe di ammissione separata o bypassano la object cache.
+A scan must not automatically evict the current working set. Scans use a separate admission class or bypass the object cache.
 
-### 13.4 Ammissione ed espulsione
+### 13.4 Admission and eviction
 
-La policy predefinita è una variante radiale di Window TinyLFU:
+The default policy is a radial variant of Window TinyLFU:
 
-- una piccola finestra protegge elementi appena osservati;
-- una stima TinyLFU decadente confronta candidato e vittima;
-- il radial score aggiunge freschezza, urgenza, prontezza e costo di ricostruzione;
-- una SLRU separa probation e protected;
-- dimensione e costo di mantenimento pesano sulla decisione.
+- a small window protects newly observed elements;
+- a decaying TinyLFU estimate compares candidate and victim;
+- the radial score incorporates freshness, urgency, readiness, and reconstruction cost;
+- an SLRU separates probation and protected segments;
+- size and maintenance cost weigh on the decision.
 
-Le letture non acquisiscono un mutex globale per aggiornare l'ordine. Eventi campionati confluiscono periodicamente nelle strutture di policy. Pin, TTL e quote per tenant prevalgono sul punteggio.
+Reads do not acquire a global mutex to update order. Sampled events are periodically merged into policy structures. Pin, TTL, and tenant quotas take precedence over score.
 
-### 13.5 Coerenza
+### 13.5 Coherence
 
-Ogni elemento derivato porta source version o watermark. Una mutazione:
+Each derived element carries a source version or watermark.
+A mutation:
 
-- aggiorna la fonte canonica;
-- invalida o aggiorna le proiezioni interessate;
-- non modifica in-place una generazione visibile;
-- pubblica la nuova generazione soltanto quando completa secondo la policy.
+- updates the canonical source;
+- invalidates or updates the affected projections;
+- does not modify a visible generation in place;
+- publishes the new generation only when complete according to policy.
 
-Una cache non può confermare una scrittura canonica. Write-back è ammesso soltanto per dati dichiarati Ephemeral; per gli altri percorsi la cache è read-through o write-through dopo il commit del backend.
+A cache cannot confirm a canonical write.
+Write-back is only allowed for data declared Ephemeral; for other cases, the cache is read-through or write-through after the backend commit.
 
-### 13.6 Page cache del sistema operativo
+### 13.6 Operating-system page cache
 
-Il backend predefinito usa buffered I/O e beneficia della page cache, perché è portabile e sicuro come punto di partenza. Un backend direct-I/O può essere attivato su piattaforme supportate quando:
+The default backend uses buffered I/O and benefits from the operating-system page cache, because it is portable and safe as a starting point.
+A direct-I/O backend can be enabled on supported platforms when:
 
-- AProDB dispone di un budget completo;
-- allineamento e dimensioni sono validati;
-- benchmark mostrano che la doppia cache è dannosa;
-- esiste fallback automatico.
+- AProDB has a complete budget;
+- alignment and sizes are validated;
+- benchmarks show that double caching is harmful;
+- there is automatic fallback.
 
-Direct-I/O non è sinonimo di maggiore velocità e non deve essere abilitato per slogan.
+Direct I/O is not synonymous with higher speed and should not be enabled for its own sake.
 
-## 14. Adattamento all'hardware
+## 14. Hardware adaptation
 
 ### 14.1 Hardware profile
 
-All'avvio AProDB costruisce un profilo versionato:
+At startup, AProDB builds a versioned profile:
 
-- architettura e set SIMD;
-- core fisici e logici;
-- cache e NUMA;
-- memoria e limiti del container;
-- tipo e capacità dei filesystem;
-- settore logico e requisiti di allineamento;
-- rotazionale, SSD o NVMe se rilevabile;
-- GPU, VRAM, capacità di calcolo e trasferimento;
-- versione di OS, driver e backend.
+- architecture and SIMD set;
+- physical and logical cores;
+- cache and NUMA;
+- memory and container limits;
+- type and capacity of filesystems;
+- logical sector size and alignment requirements;
+- rotational, SSD, or NVMe if detectable;
+- GPU, VRAM, compute and transfer capacity;
+- OS, driver, and backend version.
 
-Le informazioni incerte sono marcate come tali. Il profilo non deve contenere identificatori sensibili nei log pubblici.
+Uncertain information is marked as such. The profile must not contain sensitive identifiers in public logs.
 
-### 14.2 Calibrazione
+### 14.2 Calibration
 
-Una calibrazione breve e limitata misura:
+A short and limited calibration measures:
 
-- bandwidth e latenza memoria;
-- costo di hash, compressione e decompressione su taglie rappresentative;
-- latenza e throughput I/O;
-- costo fisso e throughput GPU;
-- dimensione di batch di pareggio.
+- memory bandwidth and latency;
+- hash, compression, and decompression cost on representative sizes;
+- I/O latency and throughput;
+- fixed cost and throughput for the GPU;
+- balancing batch size.
 
-I risultati sono salvati con fingerprint hardware/software. La calibrazione non esegue scritture distruttive sui dati e può essere disabilitata. Le decisioni runtime usano misure mobili e non soltanto il benchmark iniziale.
+Results are saved with hardware/software fingerprinting.
+Calibration does not perform destructive writes on the data and can be disabled.
+Runtime decisions use moving measurements, not just the initial benchmark.
 
-### 14.3 CPU e NUMA
+### 14.3 CPU and NUMA
 
-Lo shard count è potenza di due per routing veloce, ma non coincide necessariamente con il numero di thread. Per macchine NUMA:
+The shard count is a power of two for fast routing, but does not necessarily match the number of threads.
+For NUMA machines:
 
-- working set e code sono allocati preferibilmente nel nodo del worker;
-- compaction e GPU staging rispettano affinità quando possibile;
-- accessi cross-node sono misurati;
-- il pinning dei thread rimane configurabile e inizialmente sperimentale.
+- Working sets and code are preferably allocated in the worker's node;
+- Compaction and GPU staging respect NUMA affinity when possible;
+- Cross-node accesses are measured;
+- Thread pinning remains configurable and initially experimental.
 
-Il percorso CPU è l'implementazione di riferimento per tutti gli operatori.
+The CPU path is the reference implementation for all operators.
 
-## 15. GPU e calcolo eterogeneo
+## 15. GPU and heterogeneous computing
 
-### 15.1 Regola fondamentale
+### 15.1 Fundamental rule
 
-La GPU è opzionale, volatile e ricostruibile. Persistenza, catalogo, autorizzazione, lease, ordinamento e recovery non dipendono dalla GPU.
+The GPU is optional, volatile, and rebuildable.
+Persistence, catalog, authorization, lease, sorting, and recovery do not depend on the GPU.
 
-Ogni operatore accelerato implementa la stessa semantica su CPU. Per float e vettori sono dichiarate tolleranze numeriche e regole per NaN, infinito e ordinamento dei pareggi.
+Each accelerated operator implements the same semantics as on the CPU. For floats and vectors, numerical tolerances and rules for NaN, infinity, and tie-breaking are defined.
 
-### 15.2 Operazioni candidate
+### 15.2 Candidate operations
 
-Sono candidate:
+The following are candidates:
 
-- distanza vettoriale e top-k;
-- filtri colonnari su grandi batch;
-- aggregazioni;
-- ordinamenti e ranking;
-- hashing o deduplicazione massiva;
-- trasformazioni numeriche;
-- compressione e decompressione di grandi batch, come estensione;
-- costruzione di alcune proiezioni.
+- vector distance and top-k;
+- columnar filters on large batches;
+- aggregations;
+- ordering and ranking;
+- hashing or massive deduplication;
+- numerical transformations;
+- compression and decompression of large batches, as an extension;
+- construction of some projections.
 
-Non sono candidate nel primo percorso:
+The following are not candidates in the first phase:
 
-- singolo Get;
-- piccola mutazione;
+- single Get;
+- small mutation;
 - fsync;
-- claim e lease;
-- parsing complesso e molto ramificato;
-- operazioni con trasferimento superiore al lavoro.
+- claim and lease;
+- complex and heavily branched parsing;
+- operations where data transfer outweighs the compute workload.
 
 ### 15.3 Scheduler
 
-Il scheduler seleziona GPU soltanto se:
+The scheduler selects GPU only if:
 
     transfer_in + queue_wait + launch + gpu_compute
       + transfer_out + synchronization + risk_margin
       < estimated_cpu_compute
 
-La stima include probabilità di riuso di dati già in VRAM. Sono necessari:
+The estimate includes the probability of data already in VRAM being reused.
+The following are required:
 
-- micro-batching con attesa massima;
-- buffer host pinned solo entro un budget;
-- trasferimenti asincroni;
-- più buffer o stream quando supportati;
-- limite di richieste in volo;
-- timeout, circuit breaker e fallback CPU;
-- metriche di hit VRAM e tempo di trasferimento;
-- isolamento degli errori del driver.
+- micro-batching with a maximum wait time;
+- host pinned buffers only within a set budget;
+- asynchronous transfers;
+- multiple buffers or streams when supported;
+- limit on the number of in-flight requests;
+- timeout, circuit breaker, and CPU fallback;
+- VRAM hit metrics and transfer time;
+- isolation of driver errors.
 
-Un errore GPU non deve abbattere il database. Il dispositivo viene messo in cooldown e il lavoro ritentato su CPU quando semanticamente sicuro.
+A GPU error must not bring down the database. The device is put into cooldown and the work is retried on the CPU when semantically safe.
 
-Se un risultato GPU deve produrre una mutazione o una proiezione, il motore confronta nuovamente source version e watermark prima della pubblicazione. Un risultato calcolato su input ormai superato viene scartato o ricalcolato; non può sovrascrivere uno stato più recente.
+If a GPU result is to produce a mutation or projection, the engine compares the source version and watermark again before publishing. A result computed from obsolete input is discarded or recalculated; it cannot overwrite a more recent state.
 
-### 15.4 Formati
+### 15.4 Formats
 
-La rappresentazione GPU è colonnare, con buffer contigui, validity bitmap, offset e allineamento dichiarati. Apache Arrow è il riferimento concettuale per l'interoperabilità in memoria; AProDB non deve necessariamente dipendere dall'intero runtime Arrow nel nucleo.
+The GPU representation is columnar, with contiguous buffers, validity bitmap, offset, and declared alignment. Apache Arrow is the conceptual reference for memory interoperability; AProDB does not necessarily need to depend on the entire Arrow runtime in the core.
 
-La VRAM conserva soltanto projection_id, source watermark, schema version e buffer derivati. Il cambio di schema o generazione invalida la proiezione.
+VRAM retains only projection_id, source watermark, schema version, and derived buffers. A schema or generation change invalidates the projection.
 
 ### 15.5 Backend
 
-Il primo backend portabile può usare wgpu. Backend CUDA o HIP possono essere aggiunti dietro la stessa interfaccia per operatori nei quali portabilità e prestazioni divergono. Il file format e il protocollo non devono codificare un vendor GPU.
+The first portable backend can use wgpu. CUDA or HIP backends can be added behind the same interface for operators where portability and performance diverge. The file format and protocol must not encode a GPU vendor.
 
-## 16. Storage fisico
+## 16. Physical storage
 
-### 16.0 Contratto di backend
+### 16.0 Backend contract
 
-I capitoli 16, 17, 18 e 20 definiscono le garanzie che il backend di storage DEVE fornire, non un obbligo di reimplementare un LSM. La prima implementazione DOVREBBE usare un motore incorporato esistente scelto nella Milestone 0.5. Fjall è il primo candidato da verificare; non è una dipendenza approvata prima dello spike e dell'ADR. Redb e RocksDB rimangono vie di uscita documentate.
+Chapters 16, 17, 18, and 20 define the guarantees that the storage backend MUST provide, not a requirement to reimplement an LSM. The first implementation SHOULD use an existing embedded engine selected in Milestone 0.5. Fjall is the first candidate to be evaluated; it is not an approved dependency before the spike and ADR. Redb and RocksDB remain as documented fallback options.
 
-Il contratto minimo comprende:
+The minimum contract includes:
 
-- batch atomico per record, indici essenziali e log eventi;
-- persistenza Durable e Relaxed con punto di conferma dimostrabile;
-- snapshot o letture coerenti;
-- Get, range e prefix iteration limitabili;
-- recovery dopo crash;
-- checkpoint o backup consistente;
-- dataset maggiori della RAM;
-- compressione fisica configurabile o almeno dichiarata per keyspace, dati e indici;
-- limiti e telemetria sufficienti a prevenire crescita incontrollata;
-- comportamento definito per compaction, spazio esaurito e corruzione.
+- atomic batch for records, essential indices, and log events;
+- Durable and Relaxed persistence with a demonstrable confirmation point;
+- snapshot or consistent reads;
+- Get, range, and limited prefix iteration;
+- recovery after crash;
+- checkpoint or consistent backup;
+- datasets larger than RAM;
+- configurable or at least declared physical compression for keyspace, data, and indices;
+- limits and telemetry sufficient to prevent uncontrolled growth;
+- defined behavior for compaction, space exhaustion, and corruption.
 
-Garanzie, record envelope, versioni, log eventi, watermark e formati logici appartengono ad AProDB. WAL, memtable, segmenti, manifest e compaction fisici appartengono invece al backend incorporato. AProDB non duplica il WAL del backend.
+Guarantees, record envelope, versions, log events, watermarks, and logical formats belong to AProDB. WAL, memtable, segments, manifest, and physical compaction belong to the embedded backend. AProDB does not duplicate the backend WAL.
 
-La sostituibilità non è gratuita: transazioni, snapshot, iteratori, backup e controllo della compaction possono differire. L'adattatore espone una capability matrix e non simula capacità mancanti con garanzie più deboli. Un cambio di backend richiede export/import verificato o una migrazione esplicita. Un motore nativo viene scritto soltanto se misure concrete dimostrano che il backend scelto impedisce caratteristiche essenziali di AProDB.
+Substitutability is not free: transactions, snapshots, iterators, backup, and compaction control may differ. The adapter exposes a capability matrix and does not simulate missing capabilities with weaker guarantees. Changing the backend requires verified export/import or explicit migration. A native engine is written only if concrete measurements demonstrate that the chosen backend prevents essential features of AProDB.
 
-I test di fault injection, recovery e durabilità si applicano al contratto qualunque sia il backend.
+Fault injection, recovery, and durability tests apply to the contract regardless of the backend.
 
-### 16.1 Principi
+### 16.1 Principles
 
-Un eventuale backend nativo di riferimento combina:
+A possible native reference backend combines:
 
-- WAL append-only;
-- memtable mutabile e limitata;
-- segmenti immutabili ordinati;
-- manifest transazionale;
-- compaction in background;
-- blob separati per valori grandi.
+- append-only WAL;
+- mutable and limited memtable;
+- ordered immutable segments;
+- transactional manifest;
+- background compaction;
+- separate blobs for large values.
 
-La promozione radiale non riscrive continuamente il record canonico. Preferisce creare o eliminare proiezioni. I segmenti canonici migrano fra classi fisiche con granularità di file o extent, non a ogni lettura.
+Radial promotion does not continually rewrite the canonical record. It prefers to create or eliminate projections. Canonical segments migrate between physical classes with file or extent granularity, not on every read.
 
-Con un backend incorporato, questi elementi sono implementazione privata del backend. AProDB gestisce sopra di essi record logici, settori, indici propri necessari, superfici e placement ricostruibile.
+With an embedded backend, these elements are private to the backend implementation. AProDB manages logical records, sectors, its own necessary indices, surfaces, and reconstructible placement above them.
 
-### 16.2 Supporti
+### 16.2 Storage media
 
-**NVMe:** code asincrone, batch e parallelismo limitato alla queue depth utile; ideale per WAL, segmenti recenti e compaction.
-**SSD SATA/SAS:** concorrenza più moderata; warm e cold.
-**HDD:** accesso sequenziale, segmenti grandi e archivio; evita lookup casuali e compaction aggressiva durante il servizio.
-**Un solo dispositivo:** gli strati rimangono logici e differiscono per formato, cache e priorità I/O.
+**NVMe:** Asynchronous code, batching, and parallelism limited to effective queue depth; ideal for WAL, recent segments, and compaction.
+**SATA/SAS SSD:** more moderate concurrency; warm and cold storage.
+**HDD:** sequential access, large segments, and archiving; avoid random lookups and aggressive compaction during service.
+**Single device:** layers remain logical and differ by format, cache, and I/O priority.
 
-L'utente registra una o più storage class con path, budget e preferenza. Il motore rileva il medium ma permette override, perché virtualizzazione e RAID possono nasconderlo.
+The user registers one or more storage classes with path, budget, and preference. The engine detects the medium but allows overrides, because virtualization and RAID can obscure it.
 
-### 16.3 Priorità I/O
+### 16.3 I/O priority
 
-L'ordine predefinito è:
+The default order is:
 
-1. WAL e recovery;
-2. letture foreground;
-3. surface publication;
-4. flush memtable;
-5. compaction necessaria contro stall;
-6. prefetch;
-7. migrazione e archivio.
+1. WAL and recovery;
+2. Foreground reads;
+3. Surface publication;
+4. Memtable flush;
+5. Necessary compaction to prevent stall;
+6. Prefetch;
+7. Migration and archiving.
 
-Compaction e tiering consumano token di bandwidth e IOPS. Non devono saturare il dispositivo fino a degradare senza limite la latenza foreground.
+Compaction and tiering consume bandwidth and IOPS tokens. They must not saturate the device to the point of unbounded foreground latency degradation.
 
-Se il backend incorporato non espone priorità o tiering sufficienti, l'adattatore dichiara la capacità assente. La funzione rimane disabilitata o viene realizzata a livello di proiezioni AProDB; non si dichiara un controllo fisico inesistente.
+If the built-in backend does not provide sufficient priority or tiering, the adapter declares this capability absent. The feature remains disabled or is implemented at the AProDB projection level; non-existent physical control is not declared.
 
-## 17. Durabilità fisica e log eventi
+## 17. Physical durability and event log
 
-### 17.1 WAL del backend incorporato
+### 17.1 Embedded backend WAL
 
-Il WAL fisico, il suo framing e il recovery appartengono al backend incorporato. L'adattatore AProDB DEVE:
+The physical WAL, its framing, and recovery belong to the built-in backend. The AProDB adapter MUST:
 
-- mappare Durable e Relaxed su primitive documentate;
-- confermare Durable soltanto dopo il punto persistente offerto dal backend;
-- mantenere AtomicBatch indivisibile;
-- verificare riapertura, coda incompleta e crash mediante fault test;
-- esporre durable watermark e failure mode;
-- impedire l'apertura concorrente non supportata.
+- Map Durable and Relaxed to documented backend primitives;
+- confirm Durable only after the persistent point provided by the backend;
+- keep AtomicBatch indivisible;
+- verify reopening, incomplete tails, and crashes through fault injection tests;
+- expose durable watermark and failure modes;
+- prevent unsupported concurrent openings.
 
-AProDB non interpreta né modifica direttamente i file WAL privati del backend.
+AProDB does not directly interpret or modify private backend WAL files.
 
-### 17.2 Log eventi logico AProDB
+### 17.2 AProDB logical event log
 
-AProDB conserva un change log ordinato e versionato nello stesso batch atomico della mutazione canonica e degli indici necessari. Il log contiene almeno:
+AProDB maintains an ordered and versioned change log within the same atomic batch as the canonical mutation and the necessary indices. The log shall contain at least:
 
-- collection e partition;
-- epoch, shard e sequence;
-- tipo di operazione;
-- key o riferimento;
-- versione precedente e nuova quando disponibili;
-- transaction o batch id;
-- idempotency hash se presente;
-- metadata necessari a proiezioni e workflow;
-- riferimento al payload e alla sua versione oppure delta minimo sufficiente;
-- checksum logico o integrità fornita dal record envelope.
+- collection and partition;
+- epoch, shard, and sequence;
+- type of operation;
+- key or reference;
+- previous and new version when available;
+- transaction or batch id;
+- idempotency hash if present;
+- metadata necessary for projections and workflow;
+- reference to the payload and its version or a minimally sufficient delta;
+- logical checksum or integrity provided by the record envelope.
 
-Il change log alimenta SubscribeChanges, proiezioni, superfici, watermark e rebuild incrementali. Non sostituisce il WAL fisico e non viene usato per promettere una durabilità maggiore di quella del backend.
+The change log feeds SubscribeChanges, projections, surfaces, watermarks, and incremental rebuilds. It does not replace the physical WAL and is not used to guarantee durability exceeding that of the backend.
 
-L'evento NON DEVE duplicare per default il payload completo. Ogni collection dichiara una EventRetentionMode:
+The event MUST NOT duplicate the full payload by default. Each collection declares an EventRetentionMode:
 
-- **Delta:** l'evento contiene il delta minimo e autosufficiente richiesto dalle proiezioni;
-- **VersionRef:** record corrente ed evento riferiscono un oggetto immutabile identificato da key/version o content hash;
-- **SelfContained:** l'evento include il payload soltanto per una policy esplicita, con limiti di dimensione e retention.
+- **Delta:** the event contains the minimal, self-sufficient delta required by projections;
+- **VersionRef:** the current record and event reference an immutable object identified by key/version or content hash;
+- **SelfContained:** the event includes the payload only by explicit policy, with size and retention limits.
 
-In VersionRef il payload immutabile viene scritto una sola volta; head corrente ed evento conservano riferimenti. La versione resta leggibile finché tutti i consumer obbligatori hanno superato il watermark e finché backup o futura replica la richiedono. Leggere semplicemente la versione corrente non è corretto se nel frattempo esiste un aggiornamento successivo.
+In VersionRef, the immutable payload is written only once; the current head and event retain references to it. The version remains readable until all required consumers have passed the watermark, and as long as backup or future replication requires it. Simply reading the current version is not correct if a subsequent update already exists.
 
-Gli snapshot MVCC del backend sono utilizzabili per coerenza di una richiesta breve, NON come meccanismo di retention durevole. Non sopravvivono come contratto applicativo a un riavvio e, se trattenuti a lungo, possono impedire il garbage collection delle versioni obsolete. Retention e compaction AProDB devono usare chiavi versionate, oggetti content-addressed o delta autosufficienti.
+Backend MVCC snapshots can be used for the consistency of a short-lived request, NOT as a durable retention mechanism. They do not survive as an application contract after a restart, and if retained for long periods, they can prevent garbage collection of obsolete versions. For retention and compaction, AProDB must use versioned keys, content-addressed objects, or self-sufficient deltas.
 
-Il costo del change log viene misurato separatamente: byte evento/payload, write amplification, latenza Durable, throughput, spazio dopo compaction e costo del rebuild.
+The cost of the change log is measured separately: event bytes/payload bytes, write amplification, durable latency, throughput, space after compaction, and rebuild cost.
 
-Un AtomicBatch produce un unico commit logico oppure un gruppo indivisibile identificato dallo stesso batch id. Nessun consumer può osservare un prefisso del batch. Gli eventi vengono rimossi soltanto quando checkpoint, retention, proiezioni, backup e futura replica non li richiedono più.
+An AtomicBatch produces a single logical commit or an indivisible group identified by the same batch id. No consumer can observe a prefix of the batch. Events are removed only when checkpoint, retention, projections, backup, and future replication no longer require them.
 
-### 17.3 Formato per un eventuale backend nativo
+### 17.3 Format for a potential native backend
 
-Il WAL è una sequenza di segmenti numerati e preallocabili. Ogni frame contiene:
+The WAL is a sequence of numbered and pre-allocatable segments. Each frame contains:
 
-- magic e format version;
+- magic number and format version;
 - frame type;
 - flags;
-- shard e epoch;
-- sequence o intervallo;
-- transaction/batch id;
-- idempotency hash se presente;
-- lunghezza header e payload;
+- shard and epoch;
+- sequence or interval;
+- transaction/batch ID;
+- idempotency hash if present;
+- header and payload length;
 - payload;
-- checksum CRC32C dei byte memorizzati.
+- CRC32C checksum of stored bytes.
 
-Record grandi sono frammentati con first, middle, last e identificatore comune. Il recovery:
+Large records are fragmented with first, middle, last, and a common identifier. Recovery:
 
-1. legge manifest e checkpoint valido;
-2. ordina i segmenti WAL;
-3. verifica frame e sequence;
-4. riapplica soltanto eventi successivi al checkpoint;
-5. ignora o tronca una coda incompleta;
-6. considera corruzione un errore nel mezzo di dati già confermati;
-7. produce un report e non nasconde record saltati.
+1. reads manifest and valid checkpoint;
+2. sorts the WAL segments;
+3. verifies frame and sequence;
+4. reapplies only events following the checkpoint;
+5. ignores or truncates an incomplete tail;
+6. treats corruption as an error in confirmed data;
+7. produces a report and does not hide skipped records.
 
-Un AtomicBatch è rappresentato da un singolo record logico oppure da una sequenza begin/part/commit con checksum e conteggio complessivi. Recovery applica il batch soltanto se il commit è valido e tutte le parti sono presenti; non rende mai visibile un prefisso del batch.
+An AtomicBatch is represented by a single logical record or by a begin/part/commit sequence with overall checksum and count. Recovery applies the batch only if the commit is valid and all parts are present; it never makes a prefix of the batch visible.
 
-Il WAL viene riciclato soltanto dopo checkpoint durevole, manifest pubblicato e rispetto delle necessità di replica o backup.
+The WAL is recycled only after a durable checkpoint, the manifest is published, and replication or backup needs have been met.
 
-Questa sottosezione è normativa soltanto per un backend nativo AProDB. Non impone il formato fisico a Fjall, redb, RocksDB o altri backend incorporati.
+This subsection is normative only for a native AProDB backend. It does not impose the physical format on Fjall, redb, RocksDB, or other embedded backends.
 
-## 18. Catalogo logico, segmenti e manifest
+## 18. Logical catalog, segments, and manifest
 
-### 18.1 Backend incorporato
+### 18.1 Embedded backend
 
-Segmenti, Bloom filter, manifest fisico, file temporanei e compaction appartengono al backend incorporato. L'adattatore verifica le garanzie richieste e traduce metriche e checkpoint quando disponibili.
+Segments, Bloom filter, physical manifest, temporary files, and compaction belong to the built-in backend. The adapter verifies the required guarantees and translates metrics and checkpoints when available.
 
-AProDB mantiene in uno spazio logico dedicato e transazionale:
+AProDB maintains the following in a dedicated and transactional logical space:
 
-- schemi e relative versioni;
-- dizionari e riferimenti;
-- definizioni di indice e proiezione;
-- generation e watermark;
-- configurazione dinamica;
-- idempotency state e retention;
-- capability e versione del backend.
+- schemas and their versions;
+- dictionaries and references;
+- index and projection definitions;
+- generation and watermark;
+- dynamic configuration;
+- idempotency state and retention;
+- capability and backend version.
 
-Questo catalogo viene aggiornato atomicamente con le operazioni alle quali appartiene oppure tramite una transizione versionata e recuperabile.
+This catalog is updated atomically together with the operations it belongs to, or through a versioned and recoverable transition.
 
-### 18.2 Formato per un eventuale backend nativo
+### 18.2 Format for a possible native backend
 
-Ogni segmento immutabile contiene:
+Each immutable segment contains:
 
-- header con magic, version, UUID, collection, shard e schema;
-- intervallo di chiavi e tempo;
-- blocchi di record;
-- codec e dictionary id per blocco;
-- checksum per blocco;
-- indice sparse delle chiavi;
-- indice temporale;
+- header with magic, version, UUID, collection, shard, and schema;
+- key and time range;
+- record blocks;
+- codec and dictionary id per block;
+- checksum per block;
+- sparse index of keys;
+- time index;
 - Bloom filter;
-- statistiche min/max per campi indicizzati;
-- tombstone e version bounds;
-- footer con offset e checksum.
+- min/max statistics for indexed fields;
+- tombstone and version bounds;
+- footer with offset and checksum.
 
-Tutti gli interi on-disk hanno endian esplicito. Limiti e offset sono verificati prima di allocare memoria. Questo formato non viene imposto ai backend incorporati.
+All on-disk integers have explicit endianness. Limits and offsets are checked before memory allocation. This format is not enforced for built-in backends.
 
-### 18.3 Manifest per un eventuale backend nativo
+### 18.3 Manifest for a possible native backend
 
-Il manifest elenca segmenti attivi, checkpoint, dizionari, schemi, proiezioni e generazioni. L'aggiornamento usa:
+The manifest lists active segments, checkpoints, dictionaries, schemas, projections, and generations. Updating uses:
 
-1. scrittura di un nuovo manifest temporaneo;
-2. flush del file;
-3. rename atomico supportato;
-4. flush della directory ove necessario;
-5. conservazione controllata della generazione precedente.
+1. writing a new temporary manifest;
+2. file flush;
+3. a supported atomic rename;
+4. directory flush where necessary;
+5. controlled retention of the previous generation.
 
-I file orfani sono rilevati all'avvio e quarantinati o recuperati secondo prove, mai aggiunti automaticamente allo stato canonico.
+Orphan files are detected at startup and are quarantined or recovered according to testing, never automatically added to the canonical state.
 
-## 19. Compressione integrata
+## 19. Integrated compression
 
-### 19.1 Interpretazione di “comprimere ogni dato”
+### 19.1 Interpretation of “compress every datum”
 
-Ogni valore persistente attraversa il motore di compressione. Il risultato può avere codec Raw quando:
+Every persistent value passes through the compression engine. The result may have a Raw codec when:
 
-- il valore è troppo piccolo;
-- è già compresso o cifrato;
-- il campione non produce un guadagno minimo;
-- la latenza dello strato prevale sul risparmio;
-- la superficie richiede forma pronta.
+- the value is too small;
+- it is already compressed or encrypted;
+- the sample does not yield a minimum gain;
+- the latency of the layer outweighs the savings;
+- the surface requires a ready-to-use form.
 
-Conservare Raw è una decisione del compressore, non un aggiramento. Comprimere dati incomprimibili aumenta spazio e CPU.
+Keeping Raw is determined by the compressor, not by bypassing. Compressing incompressible data increases space usage and CPU consumption.
 
 ### 19.2 Codec
 
-Zstandard è il codec persistente generale predefinito per rapporto, velocità, decompressione e dizionari. Ogni payload logico compresso registra codec e versione, consentendo codec futuri senza migrazione immediata. Un eventuale backend nativo può inoltre comprimere blocchi fisici.
+Zstandard is the default general persistent codec for ratio, speed, decompression, and dictionaries. Each compressed logical payload records the codec and version, enabling future codecs without immediate migration. Any future native backend may also compress physical blocks.
 
-Policy iniziale:
+Initial policy:
 
 - Surface: Raw;
-- Hot: Raw oppure Zstandard fast/level basso;
-- Warm: Zstandard basso;
-- Cold: Zstandard medio scelto dal budget;
-- Archive: Zstandard più denso, eseguito fuori dal percorso foreground.
+- Hot: Raw or Zstandard fast/low level;
+- Warm: Low-level Zstandard;
+- Cold: Medium-level Zstandard chosen by budget;
+- Archive: Denser Zstandard, applied off the foreground path.
 
-I livelli numerici non sono fissati universalmente: autotuning e benchmark per classi di payload scelgono entro intervalli amministrativi.
+Numerical levels are not universally fixed: autotuning and benchmarks for each payload class choose within administrative ranges.
 
-### 19.3 Canali
+### 19.3 Channels
 
-Compressione e decompressione usano un pool limitato di contesti riutilizzabili, normalmente uno per worker attivo, non un contesto globale e non un thread per valore. I canali:
+Compression and decompression use a limited pool of reusable contexts, typically one per active worker—not a global context, and not one thread per value. Channels:
 
-- ricevono batch;
-- hanno code limitate;
-- espongono tempo, ratio e fallback;
-- rispettano priorità foreground;
-- non trattengono buffer oltre il budget.
+- receive batches;
+- have limited queues;
+- expose timing, ratio, and fallback;
+- respect foreground priorities;
+- do not retain buffers beyond the budget limit.
 
-### 19.4 Dizionari
+### 19.4 Dictionaries
 
-I dizionari sono per collection e schema. Vengono addestrati su campioni limitati in background, validati su un campione distinto e pubblicati soltanto se migliorano una funzione di costo che include spazio e latenza.
+Dictionaries are per collection and schema.
+They are trained on limited samples in the background, validated on a separate sample, and published only if they improve a cost function that includes space and latency.
 
-Ogni dizionario ha ID, checksum, schema, stato e intervallo di validità. Un dizionario non può essere eliminato finché esiste un blocco che lo richiede. Il caricamento usa forme pre-digerite e condivisibili quando il codec lo consente.
+Each dictionary has an ID, checksum, schema, status, and validity interval.
+A dictionary cannot be deleted while there is a block that requires it.
+Loading uses pre-digested and shareable forms when the codec allows.
 
-### 19.5 Integrità, cifratura e ordine
+### 19.5 Integrity, encryption, and ordering
 
-Il percorso è:
+The process is:
 
     encode -> compress decision -> optional authenticated encryption -> checksum/frame
 
-La cifratura usa una libreria verificata e chiavi esterne; AProDB non inventa primitive crittografiche. Metadata sensibili devono poter essere inclusi nella cifratura. Rotazione chiavi e backup sono procedure amministrative esplicite.
+Encryption uses a verified library and external keys; AProDB does not invent cryptographic primitives.
+Sensitive metadata must be able to be included in the encryption.
+Key rotation and backup are explicit administrative procedures.
 
-### 19.6 Coordinamento con la compressione del backend
+### 19.6 Coordination with backend compression
 
-La compressione logica AProDB e la compressione fisica del backend sono livelli indipendenti. Non devono essere abilitate entrambe alla cieca sullo stesso contenuto.
+AProDB logical compression and backend physical compression are independent layers. Both should not be blindly enabled on the same content.
 
-Ipotesi iniziale da verificare nella Milestone 0.5:
+Initial hypothesis to be verified in Milestone 0.5:
 
-- payload canonici: Raw/Zstandard AProDB; compressione dei data block del backend disabilitata;
-- catalogo, change log e piccoli metadata: payload AProDB raw; compressione veloce del backend abilitata;
-- superfici pronte: raw, con compressione backend soltanto se riduce il costo totale;
-- immagini, archivi e payload già compressi o cifrati: nessuna seconda compressione;
-- indici fisici: policy del backend separata dai data block.
+- Canonical payload: AProDB Raw/Zstandard; backend data block compression disabled;
+- Catalog, change log, and small metadata: AProDB raw payload; fast backend compression enabled;
+- Ready surfaces: raw, with backend compression only if it reduces total cost;
+- Images, archives, and already compressed or encrypted payloads: no second compression;
+- Physical indexes: backend policy separated from data blocks.
 
-Questa è una matrice sperimentale, non un default approvato. Lo spike confronta almeno:
+This is an experimental matrix, not an approved default. The spike compares at least:
 
-1. solo Zstandard AProDB;
-2. solo compressione veloce del backend;
-3. entrambi i livelli;
-4. nessuna compressione.
+1. only AProDB Zstandard;
+2. only fast backend compression;
+3. both levels;
+4. no compression.
 
-Per ogni variante misura ingest, p95/p99, decompressione, CPU, spazio, compaction e recovery su payload ripetitivi, casuali e già compressi. L'ADR sceglie per keyspace e classe di dati. Se il backend non permette questa distinzione, la capability matrix lo dichiara e l'ADR valuta se il limite è accettabile.
+For each variant, measure ingest, p95/p99, decompression, CPU, space, compaction, and recovery on repetitive, random, and already compressed payloads. The ADR chooses by keyspace and data class. If the backend does not allow this distinction, the capability matrix declares it and the ADR evaluates whether the limit is acceptable.
 
-## 20. Memtable, flush e compaction
+## 20. Memtable, flush, and compaction
 
-Con un backend incorporato, memtable, flush e compaction fisici sono responsabilità del backend e non vengono duplicati da AProDB. L'adattatore configura soltanto opzioni supportate, raccoglie metriche e applica backpressure usando segnali reali. Le strutture radiali, le cache e le superfici AProDB restano derivate e separate.
+With an embedded backend, memtable, flush, and physical compaction are the responsibility of the backend and are not duplicated by AProDB. The adapter configures only supported options, collects metrics, and applies backpressure using real signals. Radial structures, caches, and AProDB surfaces remain derived and separate.
 
-Per un eventuale backend nativo, la memtable contiene versioni recenti e indici minimi. Quando raggiunge soglia di byte o età:
+For a potential native backend, the memtable contains recent versions and minimum indices. When it reaches a byte or age threshold:
 
-1. viene congelata;
-2. una nuova memtable accetta scritture;
-3. la congelata viene ordinata;
-4. produce segmenti immutabili;
-5. il manifest viene pubblicato;
-6. il WAL coperto diventa riciclabile.
+1. it is frozen;
+2. a new memtable accepts writes;
+3. the frozen one is sorted;
+4. it produces immutable segments;
+5. the manifest is published;
+6. the covered WAL becomes recyclable.
 
-La compaction è time-partitioned e shard-aware. Deve:
+Compaction is time-partitioned and shard-aware. It must:
 
-- eliminare versioni superate oltre retention;
-- applicare tombstone solo quando nessun livello o replica richiede il record;
-- unire segmenti senza mescolare inutilmente finestre temporali;
-- ricomprimere secondo strato;
-- preservare sequence e checksum;
-- evitare write amplification non controllata;
-- fermarsi o rallentare quando danneggia il foreground.
+- delete outdated versions beyond retention;
+- apply tombstone only when no level or replica requires the record;
+- merge segments without unnecessarily mixing time windows;
+- recompress according to layer;
+- preserve sequence and checksum;
+- avoid uncontrolled write amplification;
+- stop or slow down when it harms the foreground.
 
-Il compaction debt è misurato in byte, segmenti e tempo stimato. Se supera soglie, scatta backpressure prima dell'esaurimento del disco.
+Compaction debt is measured in bytes, segments, and estimated time. If thresholds are exceeded, backpressure is applied before disk exhaustion.
 
-Se un backend incorporato non espone il debito di compaction, AProDB usa soltanto indicatori osservabili documentati, come latenza, spazio, stall e backlog. Non inventa una misura precisa non disponibile.
+If an embedded backend does not expose compaction debt, AProDB uses only documented observable indicators such as latency, space, stall, and backlog. It does not invent unavailable precise measurements.
 
-## 21. Indici e query
+## 21. Indexes and queries
 
-### 21.1 Indici obbligatori
+### 21.1 Mandatory indexes
 
-Ogni collection ha:
+Each collection has:
 
-- indice esatto della chiave;
-- indice di versione;
-- indice temporale se dichiara freshness;
-- indice di workflow se usa Claim;
-- TTL index se usa scadenze.
+- exact key index;
+- version index;
+- time index if freshness is declared;
+- workflow index if Claim is used;
+- TTL index if expirations are used.
 
-Gli indici secondari ammessi sono dichiarativi:
+The secondary indices allowed are declarative:
 
 - hash equality;
 - ordered range;
 - prefix;
-- composite time/priority/state;
-- full-text futuro;
-- vector exact o ANN.
+- time/priority/state composite;
+- future full-text;
+- exact vector or ANN.
 
-Un indice è canonico soltanto per ciò che serve a localizzare il record; gli altri sono derivati e ricostruibili dal log/segmenti. Il catalogo conserva source watermark e stato di build.
+An index is canonical only for locating the record; the others are derived and reconstructible from the log/segments. The catalog stores the source watermark and build state.
 
-### 21.2 Lookup e segmenti
+### 21.2 Lookup and segments
 
-In RAM, il motore può combinare hash index per Get e struttura ordinata per range. Su disco i segmenti sono ordinati e usano indice sparse, Bloom filter e statistiche di blocco per evitare letture.
+In RAM, the engine can combine a hash index for Get and an ordered structure for ranges. On disk, segments are ordered and use sparse indexes, Bloom filters, and block statistics to avoid reads.
 
-La scelta concreta di hash table, B-tree, ART o skiplist rimane interna e può cambiare senza modificare il protocollo. Deve essere misurata su layout e workload AProDB; non è un tratto del formato pubblico.
+The concrete choice among hash table, B-tree, ART, or skiplist remains internal and can change without modifying the protocol. It must be evaluated on AProDB layout and workload; it is not a trait of the public format.
 
-### 21.3 Query planner limitato
+### 21.3 Limited query planner
 
-Il planner:
+The planner:
 
-- accetta soltanto predicati supportati;
-- stima segmenti, blocchi e righe;
-- dichiara indice scelto e fallback;
-- applica un limite di costo;
-- rifiuta una scansione completa se il client non la autorizza esplicitamente;
-- può scegliere CPU o GPU per la fase batch.
+- accepts only supported predicates;
+- estimates segments, blocks, and rows;
+- declares the chosen index and fallback;
+- applies a cost limit;
+- rejects a full scan unless the client explicitly authorizes it;
+- can choose CPU or GPU for the batch phase.
 
-Explain restituisce piano, stime, tier, possibile staleness e backend compute senza eseguire. Analyze aggiunge misure ed è soggetto ad autorizzazione.
+Explain returns the plan, estimates, tier, possible staleness, and backend compute without executing. Analyze adds measurements and is subject to authorization.
 
-### 21.4 Vettori
+### 21.4 Vectors
 
-Il motore offre:
+The engine offers:
 
-- ExactFlat CPU obbligatorio;
-- ExactFlat GPU opzionale;
-- HNSW CPU come indice derivato successivo;
-- IVF o product quantization come ricerca sperimentale futura.
+- ExactFlat CPU required;
+- ExactFlat GPU optional;
+- HNSW CPU as a subsequent derived index;
+- IVF or product quantization as future experimental search methods.
 
-Dimensione, metrica e normalizzazione appartengono allo schema. I risultati approssimati devono dichiarare l'indice e i parametri; non possono essere presentati come exact. Aggiornamenti e cancellazioni devono avere una strategia di rebuild e tombstone.
+Size, metric, and normalization are properties of the schema. Approximate results must declare the index and parameters; they cannot be presented as exact. Updates and deletions must implement a rebuild and tombstone strategy.
 
-## 22. Superfici e proiezioni
+## 22. Surfaces and projections
 
-### 22.1 Definizione
+### 22.1 Definition
 
-Una proiezione nominata specifica:
+A named projection specifies:
 
-- collezioni sorgente;
-- filtri indicizzati;
-- ordinamento totale con tie-break;
-- campi o trasformazioni ammesse;
-- formato di uscita;
-- limite di record e byte;
-- finestra temporale;
-- staleness massima desiderata;
-- policy di pubblicazione;
-- dipendenze.
+- source collections;
+- indexed filters;
+- total ordering with tie-breaker;
+- allowed fields or transformations;
+- output format;
+- record and byte limits;
+- time window;
+- maximum desired staleness;
+- publication policy;
+- dependencies.
 
-Le trasformazioni di dominio esterne scrivono nuovi campi o eventi; il motore non esegue traduzioni o modelli arbitrari all'interno della transazione.
+External domain transformations write new fields or events; the engine does not perform arbitrary translations or modeling within the transaction.
 
-### 22.2 Aggiornamento incrementale
+### 22.2 Incremental update
 
-Ogni evento canonico viene valutato contro le proiezioni dipendenti. Il builder:
+Each canonical event is evaluated against dependent projections. The builder:
 
-1. legge dalla sequence successiva al watermark;
-2. applica insert, update o remove alla struttura candidata;
-3. verifica ordinamento, limiti e dipendenze;
-4. serializza la nuova generazione o delta;
-5. pubblica atomicamente;
-6. avanza il watermark.
+1. read from the sequence following the watermark;
+2. apply insert, update, or remove to the candidate structure;
+3. verify ordering, limits, and dependencies;
+4. serialize the new generation or delta;
+5. publish atomically;
+6. advance the watermark.
 
-Un rebuild completo avviene su richiesta, schema change, corruzione o gap del change log. Non è la procedura normale periodica.
+A complete rebuild is performed on request, schema change, corruption, or changelog gap.
+This is not the normal periodic procedure.
 
-### 22.3 Formati di superficie
+### 22.3 Surface formats
 
-Sono ammessi:
+The following are allowed:
 
-- record AProDB binari;
-- JSON pre-serializzato;
-- MessagePack o Protobuf definito dalla proiezione;
-- Arrow IPC per batch analitici.
+- AProDB binary records;
+- pre-serialized JSON;
+- MessagePack or Protobuf as defined by the projection;
+- Arrow IPC for analytic batches.
 
-Header dinamici e autorizzazioni per utente non devono essere materializzati dentro una superficie condivisa. La risposta applicativa può combinare superficie pubblica e dati personali separati.
+Dynamic headers and user permissions must not be materialized within a shared surface.
+The application response may combine the public surface and separate personal data.
 
-### 22.4 Pubblicazione
+### 22.4 Publication
 
-Una generazione è immutabile e indirizzata da ID. Il puntatore current cambia atomicamente. Il server conserva un numero limitato di generazioni per lettori in corso e rollback operativo. Le generazioni non più referenziate sono rimosse in background.
+A generation is immutable and addressed by ID.
+The current pointer changes atomically.
+The server retains a limited number of generations for active readers and operational rollback.
+Generations that are no longer referenced are removed in the background.
 
-## 23. Protocollo e API client
+## 23. Protocol and Client API
 
-### 23.1 Data plane
+### 23.1 Data Plane
 
-Il protocollo è binario, versionato e language-neutral. La prima implementazione dovrebbe usare messaggi Protobuf in frame length-delimited con:
+The protocol is binary, versioned, and language-neutral. The first implementation should use length-delimited Protobuf messages with:
 
-- magic e protocol version nel handshake;
+- magic and protocol version in the handshake;
 - request_id;
 - operation;
 - deadline;
-- tenant e namespace;
-- consistency e durability richieste;
+- tenant and namespace;
+- required consistency and durability;
 - payload;
 - response status;
-- server version, record version e watermark.
+- server version, record version, and watermark.
 
-Il trasporto supporta più richieste in volo e batch. Il server impone dimensione massima di frame, inflight per connessione e tempo di inattività.
+The transport supports multiple in-flight and batched requests. The server enforces a maximum frame size, in-flight limits per connection, and an idle timeout.
 
-### 23.2 Trasporti
+### 23.2 Transports
 
-- named pipe o Unix domain socket per client locali;
-- TCP con TLS per remoto;
-- plaintext TCP soltanto su loopback o rete esplicitamente fidata;
-- un endpoint amministrativo separabile.
+- Named pipe or Unix domain socket for local clients;
+- TCP with TLS for remote connections;
+- Plaintext TCP only on loopback or explicitly trusted networks;
+- a separable administrative endpoint.
 
-Compressione del protocollo è negoziata soltanto per payload sufficientemente grandi e non già compressi. Non deve duplicare inutilmente la compressione dei blocchi persistenti.
+Protocol compression is negotiated only for payloads that are sufficiently large and not already compressed. It must not unnecessarily duplicate the compression of persistent blocks.
 
-### 23.3 API amministrativa
+### 23.3 Administrative API
 
-L'API amministrativa offre:
+The Administrative API provides:
 
-- health, readiness e build info;
-- catalogo e configurazione effettiva;
-- metriche;
-- checkpoint e backup;
-- compaction controllata;
-- stato indici e proiezioni;
+- health, readiness, and build information;
+- catalog and effective configuration;
+- metrics;
+- checkpoint and backup;
+- controlled compaction;
+- index and projection status;
 - hardware profile;
-- explain placement;
-- verifica integrità;
-- drain e shutdown ordinato.
+- placement explanation;
+- integrity verification;
+- orderly drain and shutdown.
 
-Le operazioni distruttive richiedono autorizzazione distinta e conferma del target.
+Destructive operations require separate authorization and confirmation of the target.
 
-### 23.4 Compatibilità Redis
+### 23.4 Redis Compatibility
 
-Un gateway RESP3 può mappare in futuro GET, SET, MGET, DEL, TTL, INCR e subset di stream/queue. È un adattatore, non la semantica interna. Comandi non equivalenti devono fallire; non devono avere un'approssimazione sorprendente.
+A RESP3 gateway may in the future map GET, SET, MGET, DEL, TTL, INCR, and a subset of stream/queue commands.
+It serves as an adapter, not as the internal semantics.
+Non-equivalent commands must fail; they must not result in surprising approximations.
 
-## 24. Sicurezza
+## 24. Security
 
-### 24.1 Confini
+### 24.1 Boundaries
 
-La directory dati è accessibile soltanto all'account del servizio. Un solo processo la apre in scrittura. I client non ricevono percorsi filesystem.
+The data directory is accessible only to the service account.
+A single process opens it for writing.
+Clients do not receive file system paths.
 
-### 24.2 Identità e autorizzazione
+### 24.2 Identity and authorization
 
-Sono previsti:
+The following are planned:
 
-- autenticazione locale tramite credenziali del trasporto quando disponibile;
-- token brevi o mTLS per remoto;
-- ruoli per tenant, namespace, collection e operazione;
-- separazione data/admin;
-- quote di byte, richieste, connessioni e GPU;
-- audit delle mutazioni amministrative.
+- local authentication via transport credentials when available;
+- short-lived tokens or mTLS for remote access;
+- roles for tenant, namespace, collection, and operation;
+- data/admin separation;
+- quotas for bytes, requests, connections, and GPUs;
+- auditing of administrative mutations.
 
-I token non vengono scritti nei log. Confronti di segreti sono constant-time quando applicabile.
+Tokens are never written to logs.
+Secret comparisons use constant-time operations when applicable.
 
 ### 24.3 Input
 
-Decoder e parser:
+Decoders and parsers:
 
-- verificano lunghezze prima di allocare;
-- hanno profondità e cardinalità massime;
-- rifiutano float non finiti quando lo schema li vieta;
-- validano UTF-8 soltanto per tipi text;
-- non fidano di offset on-disk;
-- sono sottoposti a fuzzing.
+- verify lengths before allocating;
+- enforce maximum depth and cardinality;
+- reject non-finite float values when prohibited by the schema;
+- validate UTF-8 only for text types;
+- do not trust on-disk offsets;
+- are subject to fuzz testing.
 
-### 24.4 Cifratura
+### 24.4 Encryption
 
-TLS protegge il transito. La cifratura at-rest è opzionale ma progettata per blocco con AEAD e key id. Le chiavi provengono da file protetto, variabile iniettata o KMS; non sono inserite nel manifest in chiaro.
+TLS protects data in transit. At-rest encryption is optional but designed per block using AEAD and key IDs. Keys come from a protected file, injected variable, or KMS; they are not stored in the manifest in plaintext.
 
-## 25. Osservabilità
+## 25. Observability
 
-Metriche minime:
+Minimum metrics:
 
-- throughput e latenza p50/p95/p99 per operazione;
-- errori e retry;
-- queue depth e backpressure;
-- backend commit, group size, persist latency e durable watermark;
-- working set, write buffer e flush esposti dal backend;
-- segmenti, compaction debt e write amplification;
-- spazio logico, fisico e temporaneo;
-- hit/miss/admission/eviction per cache;
-- staleness e build time delle superfici;
-- claim, lease expired, heartbeat e stale completion;
-- compression ratio e CPU per codec/tier;
-- I/O bytes, latency e outstanding;
+- throughput and p50/p95/p99 latency per operation;
+- errors and retries;
+- queue depth and backpressure;
+- backend commit, group size, persist latency, and durable watermark;
+- working set, write buffer, and flush as reported by the backend;
+- segments, compaction debt, and write amplification;
+- logical, physical, and temporary space;
+- cache hit, miss, admission, and eviction;
+- staleness and build time for surfaces;
+- claim, lease expired, heartbeat, and stale completion;
+- compression ratio and CPU usage per codec/tier;
+- I/O bytes, latency, and outstanding operations;
 - CPU pool saturation;
-- GPU queue, transfer, kernel, fallback e VRAM;
-- recovery time e record riprodotti;
-- quote per tenant.
+- GPU queue, transfer, kernel, fallback, and VRAM;
+- recovery time and records replayed;
+- quotas per tenant.
 
-I log sono strutturati e includono event id, component, shard e sequence quando pertinenti. Payload e chiavi complete sono esclusi per default. Il tracing propaga request_id e collega scrittura, commit backend, change log, proiezione e risposta.
+Logs are structured and include event id, component, shard, and sequence when relevant. Payloads and full keys are excluded by default. Tracing propagates request_id and connects write, backend commit, change log, projection, and response.
 
-Health indica processo vivo; readiness richiede catalogo e shard servibili. Una proiezione in ritardo può rendere degradato un endpoint senza dichiarare morto l'intero database.
+Health indicates a live process; readiness requires a servable catalog and shards. A delayed projection can degrade an endpoint without declaring the entire database dead.
 
-## 26. Gestione delle risorse
+## 26. Resource management
 
-### 26.1 Disco
+### 26.1 Disk
 
-Sono configurati:
+Configured as follows:
 
-- quota dati;
-- riserva minima libera;
-- quota del log e dei file temporanei del backend;
-- quota temporanei di compaction;
-- soglie warning, throttle e read-only emergency.
+- data quota;
+- minimum free reserve;
+- log and backend temporary file quota;
+- temporary quota for compaction;
+- warning, throttle, and read-only emergency thresholds.
 
-Prima di una compaction il motore stima spazio temporaneo. Se non è sufficiente, non inizia e applica backpressure. In emergenza preserva letture e recovery; non cancella dati canonici per liberare spazio.
+Before a compaction, the engine estimates temporary space. If it is insufficient, compaction does not start and backpressure is applied. In emergencies, it preserves reads and recovery; canonical data is not deleted to free space.
 
 ### 26.2 CPU
 
-Pool separati hanno limiti:
+Separate pools have limits:
 
 - foreground;
 - commit storage;
@@ -1173,468 +1206,481 @@ Pool separati hanno limiti:
 - projection;
 - vector/compute.
 
-La priorità favorisce durabilità e richieste foreground. L'autotuner non può consumare tutti i core senza un margine amministrativo.
+Priority favors durability and foreground requests. The autotuner cannot consume all cores, maintaining an administrative margin.
 
 ### 26.3 GPU
 
-VRAM ha quote per indice/proiezione e riserva per batch. Il server non dipende dall'overcommit del driver. La rimozione da VRAM avviene prima di esaurire memoria; un out-of-memory GPU attiva fallback e cooldown.
+VRAM is allocated per index/projection and reserved per batch. The server does not depend on the driver's overcommit. VRAM eviction occurs before memory exhaustion; a GPU out-of-memory error triggers fallback and cooldown.
 
 ### 26.4 Tenant
 
-Ogni tenant può avere limiti su:
+Each tenant may have limits on:
 
-- spazio canonico;
-- superfici;
+- canonical space;
+- surfaces;
 - cache;
-- richieste e byte al secondo;
-- operazioni in volo;
-- claim;
+- requests and bytes per second;
+- in-flight operations;
+- claims;
 - GPU.
 
-Una scansione o proiezione di un tenant non deve affamare gli altri.
+A scan or projection for one tenant must not starve others.
 
-## 27. Recovery, backup e riparazione
+## 27. Recovery, backup and repair
 
 ### 27.1 Recovery
 
-Recovery deve essere deterministico, idempotente e osservabile. Una partenza fallita non modifica irreversibilmente l'unica copia valida. Il server può avviarsi read-only per ispezione.
+Recovery must be deterministic, idempotent, and observable.
+A failed start does not irreversibly modify the sole valid copy.
+The server can start in read-only mode for inspection.
 
-Le classi di danno sono:
+The classes of damage are:
 
-- commit backend incompleto: non visibile dopo recovery;
-- stato canonico confermato ma non pubblicato nel working set: recovery o rilettura lo rende visibile;
-- change log incoerente con il record: violazione atomica e stop controllato;
-- file fisico backend corrotto: recovery, errore o repair secondo le garanzie documentate dal backend;
-- segmento derivato corrotto: ricostruzione;
-- stato canonico corrotto: ripristino da replica/backup o repair con perdita dichiarata;
-- catalogo logico corrotto: prova della versione precedente o restore;
-- cache/surface/VRAM persa: rebuild.
+- incomplete backend commit: not visible after recovery;
+- confirmed canonical state but not published in the working set: recovery or rereading makes it visible;
+- change log inconsistent with the record: atomicity violation and controlled shutdown;
+- corrupt physical backend file: recovery, error, or repair according to the guarantees documented by the backend;
+- corrupt derived segment: reconstruction required;
+- corrupt canonical state: restore from replica/backup or repair with declared loss;
+- corrupt logical catalog: proof of previous version or restore;
+- lost cache/surface/VRAM: requires rebuild.
 
 ### 27.2 Checkpoint
 
-Un checkpoint registra:
+A checkpoint records:
 
-- backend checkpoint id e catalog generation;
+- backend checkpoint ID and catalog generation;
 - durable watermark per shard;
-- inventario e checksum esposti dal backend;
-- schemi e dizionari richiesti;
-- catalogo;
-- encryption key ids;
-- versione software, formato logico e backend.
+- inventory and checksum exposed by the backend;
+- required schemas and dictionaries;
+- catalog;
+- encryption key IDs;
+- software version, logical format, and backend.
 
 ### 27.3 Backup
 
-Il backup online:
+Online backup:
 
-1. crea o seleziona checkpoint consistente;
-2. usa snapshot, checkpoint o procedura di backup supportata dal backend;
-3. include catalogo logico, blob e dizionari;
-4. include il change log successivo se richiesto;
-5. produce inventario e checksum;
-6. rilascia snapshot o pin.
+1. Create or select a consistent checkpoint;
+2. Use a snapshot, checkpoint, or backup procedure supported by the backend;
+3. Include logical catalog, blobs, and dictionaries;
+4. Include the subsequent change log if required;
+5. Produce inventory and checksum;
+6. Release the snapshot or pin.
 
-Il successo di una copia non equivale a backup verificato. Devono esistere restore test periodici su directory separata.
+A successful copy does not constitute a verified backup. Periodic restore tests must be performed on separate directories.
 
 ### 27.4 Repair
 
-Repair non è eseguito automaticamente. Lavora su copia o con conferma esplicita, produce un rapporto machine-readable e distingue record recuperati, persi e dubbi.
+Repair is not performed automatically. It operates on a copy or with explicit confirmation, produces a machine-readable report, and distinguishes between recovered, lost, and questionable records.
 
-## 28. Replica e alta disponibilità
+## 28. Replication and high availability
 
-La prima versione di produzione è single-node. Il formato logico prepara la replica mediante epoch, sequence, checkpoint e change log ordinato.
+The initial production version is single-node. The logical format prepares for replication through epoch, sequence, checkpoint, and an ordered change log.
 
-La fase distribuita usa un consenso leader-based, preferibilmente Raft per gruppo di shard:
+The distributed phase uses leader-based consensus, preferably Raft for each shard group:
 
-- una scrittura è committed dopo quorum secondo policy;
-- i follower applicano lo stesso log;
-- lease e fencing dipendono dal term/epoch;
-- letture follower dichiarano staleness;
-- snapshot installabili riducono il log;
-- membership change è controllata.
+- a write is committed after quorum according to policy;
+- followers apply the same log;
+- lease and fencing depend on the term/epoch;
+- follower reads declare staleness;
+- installable snapshots reduce the log;
+- membership changes are controlled.
 
-Non si implementa un protocollo di consenso “simile a Raft” incompleto. Prima della replica servono modello formale degli stati, fault injection e test di partizione. Multi-leader e transazioni cross-group restano fuori dal progetto 1.x.
+An incomplete Raft-like consensus protocol is not implemented. Before replication, a formal state model, fault injection, and partition testing are required. Multi-leader and cross-group transactions remain outside the scope of the 1.x project.
 
-## 29. Compatibilità e migrazioni
+## 29. Compatibility and migrations
 
-### 29.1 Versioni
+### 29.1 Versions
 
-Sono versionati separatamente:
+The following components are versioned separately:
 
-- protocollo;
-- catalogo;
+- Protocol;
+- catalog;
 - change log;
-- adattatore e formato del backend;
-- schema utente;
-- proiezione;
+- backend adapter and format;
+- user schema;
+- projection;
 - checkpoint.
 
-Un reader supporta una finestra dichiarata di formati precedenti. Un writer non aggiorna automaticamente un formato irreversibile senza backup/checkpoint e piano di rollback.
+A reader supports a declared window of previous formats.
+A writer does not automatically upgrade to an irreversible format without a backup/checkpoint and rollback plan.
 
 ### 29.2 AProDB 0.1
 
-Il prototipo corrente contiene:
+The current prototype contains:
 
-- typed key-value;
-- shard HashMap con RwLock;
-- WAL singolo;
-- snapshot completo;
-- compressione Zstandard per valore e canali;
-- parallelismo Rayon;
-- ricerca vettoriale CPU/GPU con wgpu;
-- CLI e benchmark.
+- Typed key-value storage;
+- Sharded HashMap with RwLock synchronization;
+- Single Write-Ahead Log (WAL);
+- Full snapshot support;
+- Zstandard compression for values and channels;
+- Rayon-based parallelism;
+- CPU/GPU vector search using wgpu;
+- Command-line interface (CLI) and benchmarking utilities.
 
-Non contiene il file format, il protocollo o le garanzie complete di questa specifica. È materiale sperimentale da cui riusare test e componenti, non un formato 1.0 da mantenere implicitamente.
+It does not contain the full file format, protocol, or guarantees of this specification. It is experimental material intended for reuse of tests and components, not a 1.0 format to be implicitly maintained.
 
-La nuova implementazione deve:
+The new implementation must:
 
-1. congelare test di lettura 0.1;
-2. scegliere import one-shot oppure dichiarare incompatibilità;
-3. non aprire una directory 0.1 come 1.0 senza riconoscimento esplicito;
-4. conservare una copia prima della conversione;
-5. documentare cosa non può essere migrato.
+1. Freeze reading tests for version 0.1;
+2. Choose a one-shot import or declare incompatibility;
+3. Do not open a 0.1 directory as 1.0 without explicit acknowledgment;
+4. Keep a backup copy before conversion;
+5. Document anything that cannot be migrated.
 
-## 30. Configurazione
+## 30. Configuration
 
-La configurazione ha:
+The configuration includes:
 
-- file statico versionato;
-- variabili ambiente per riferimenti a segreti e override selezionati;
-- valori dinamici persistiti nel catalogo;
-- effective config interrogabile;
-- validazione prima dell'avvio.
+- Versioned static file;
+- Environment variables for referencing secrets and selected overrides;
+- Dynamic values persisted in the catalog;
+- Queryable effective configuration;
+- Validation before startup.
 
-Gruppi minimi:
+Minimum groups:
 
-- server e trasporti;
-- data paths e storage classes;
-- memory budget e pool;
-- shard e partition;
-- backend, change log e durabilità;
-- capability, checkpoint e compaction;
-- compressione e dizionari;
-- cache e radial weights;
-- proiezioni;
+- server and transport;
+- data paths and storage classes;
+- memory budget and pool;
+- shard and partition;
+- backend, change log, and durability;
+- capability, checkpoint, and compaction;
+- compression and dictionaries;
+- cache and radial weights;
+- projections;
 - CPU/GPU;
-- autenticazione/TLS;
-- quote;
-- metriche e log;
-- backup e retention.
+- authentication/TLS;
+- quotas;
+- metrics and logs;
+- backup and retention.
 
-Le unità sono esplicite. Durate e byte non usano numeri privi di suffisso nei file destinati agli operatori.
+Units are explicit. Duration and byte values do not use unsuffixed numbers in files intended for operators.
 
-## 31. Test di correttezza
+## 31. Correctness tests
 
-La gerarchia obbligatoria è:
+The mandatory hierarchy is:
 
-1. unit test di codec, versioni, score e transizioni;
-2. property test di encode/decode e ordinamento;
-3. golden test di record envelope, change log, catalogo e protocollo;
-4. fuzzing di parser, recovery e formati;
-5. test concorrenti di CAS, batch, claim e lease;
-6. model-based test contro un modello sequenziale;
-7. fault injection fra preparazione, commit backend, publication e checkpoint;
-8. kill e riavvio ripetuti;
-9. disco pieno, permessi, short read/write e corruzione;
-10. clock jump e lease scaduti;
-11. GPU reset/out-of-memory e fallback;
-12. compatibilità fra versioni;
-13. restore di backup.
+1. unit tests for codec, versions, score, and transitions;
+2. property tests for encode/decode and ordering;
+3. golden tests of record envelopes, change log, catalog, and protocol;
+4. fuzzing of parser, recovery, and formats;
+5. concurrent tests of CAS, batch, claim, and lease;
+6. model-based tests against a sequential model;
+7. fault injection between preparation, backend commit, publication, and checkpoint;
+8. repeated kill and restart;
+9. full disk, permissions, short read/write, and corruption;
+10. clock jump and expired lease;
+11. GPU reset/out-of-memory and fallback;
+12. compatibility between versions;
+13. backup and restore.
 
-Invarianti da verificare:
+Invariants to verify:
 
-- nessun ACK Durable senza record recuperabile;
-- sequence mai riutilizzata;
-- un fencing token obsoleto non completa un lease;
-- budget non superato oltre una tolleranza misurata;
-- proiezione mai dichiara un watermark non applicato;
-- un consumer lento legge la versione o il delta esatto anche dopo compaction e riavvio;
-- nessuna retention applicativa dipende dalla vita di uno snapshot del backend;
-- cache persa non perde dati;
-- CPU-only conserva tutte le funzioni;
-- corruzione non viene trasformata silenziosamente in assenza.
+- no Durable ACK without a recoverable record;
+- sequence is never reused;
+- an obsolete fencing token does not complete a lease;
+- budget is not exceeded beyond a measured tolerance;
+- projection never declares a watermark that has not been applied;
+- a slow consumer reads the exact version or delta even after compaction and restart;
+- no application retention depends on the lifetime of a backend snapshot;
+- lost cache does not result in data loss;
+- CPU-only retains all functions;
+- corruption is not silently transformed into absence.
 
 ## 32. Benchmark
 
-### 32.1 Profili
+### 32.1 Profiles
 
-Il benchmark ufficiale comprende:
+The official benchmark suite includes:
 
-- exact Get/Put su piccoli record;
+- exact Get/Put on small records;
 - batch Get/Put;
-- append, claim, heartbeat e complete multi-client;
-- feed temporale con aggiornamento incrementale;
+- append, claim, heartbeat, and complete multi-client;
+- temporal feed with incremental updates;
 - surface read;
-- cold miss e decompressione;
-- scansione indicizzata;
-- vettori exact CPU e GPU;
-- workload misto con compaction;
-- recovery e rebuild;
-- payload comprimibili, già compressi e casuali;
-- RAM limitata rispetto al dataset.
+- cold miss and decompression;
+- indexed scan;
+- exact CPU and GPU vectors;
+- mixed workload with compaction;
+- recovery and rebuild;
+- compressible, already compressed, and random payloads;
+- RAM limited relative to the dataset.
 
-### 32.2 Metodo
+### 32.2 Method
 
-Devono essere dichiarati:
+The following benchmark parameters must be declared:
 
-- hardware, OS, filesystem e power mode;
-- versione e configurazione di ogni database;
-- dataset e seed;
+- hardware, OS, filesystem, and power mode;
+- version and configuration of each database;
+- dataset and seed;
 - warmup;
-- client, trasporto e pool;
-- durabilità equivalente;
-- concorrenza;
-- intervalli di confidenza e run scartati;
-- spazio logico, fisico e temporaneo;
-- p50, p95, p99 e throughput sostenuto;
-- CPU, RAM, I/O e GPU;
-- tempo di recovery.
+- client, transport, and pool;
+- equivalent durability;
+- concurrency;
+- confidence intervals and discarded runs;
+- logical, physical, and temporary space;
+- p50, p95, p99, and sustained throughput;
+- CPU, RAM, I/O, and GPU;
+- recovery time.
 
-Confronti embedded e server stanno in tabelle separate. I risultati non sono proprietà permanenti del prodotto e non sostituiscono benchmark sul workload dell'utente.
+Embedded and server comparisons are presented in separate tables.
+Results do not constitute permanent product characteristics and do not replace benchmarks using the user's workload.
 
-### 32.3 Criteri
+### 32.3 Criteria
 
-Non vengono fissate promesse numeriche prima di una macchina di riferimento. I gate architetturali sono:
+No numerical guarantees are set prior to testing on a reference machine.
+The architectural gates are:
 
-- nessuna regressione di correttezza per ottenere throughput;
-- prestazioni CPU funzionali senza GPU;
-- superficie incrementale più economica del rebuild completo sul profilo target;
-- memoria limitata senza OOM;
-- throughput sostenuto senza debito di compaction crescente indefinitamente;
-- accelerazione GPU positiva soltanto oltre una soglia misurata;
-- risultati comparativi riproducibili.
+- no regression of correctness in order to achieve throughput;
+- functional CPU performance without relying on GPU;
+- more efficient incremental surface area compared to a complete rebuild on the target profile;
+- limited memory usage without OOM;
+- sustained throughput without indefinite growth of compaction debt;
+- positive GPU acceleration only above a measured threshold;
+- comparative results must be reproducible.
 
-## 33. Roadmap di implementazione
+## 33. Implementation roadmap
 
-### Milestone 0 — Fondazioni
+### Milestone 0 — Foundations
 
-- inizializzare Git prima di modifiche sostanziali;
-- preservare il prototipo;
-- creare workspace Rust;
-- definire crate e confini;
-- CI locale, format, clippy, test;
-- ADR e feature matrix;
-- identificatori e error model.
+- initialize Git before substantial changes;
+- preserve the prototype;
+- create Rust workspace;
+- define crate structure and boundaries;
+- set up local CI, formatting, Clippy, and tests;
+- ADR and feature matrix;
+- identifiers and error model.
 
-### Milestone 0.5 — Scelta del backend di storage
+### Milestone 0.5 — Storage backend selection
 
-- definire il contratto minimo dello storage: atomicità, durabilità, range scan, recovery, compaction, memoria e dataset maggiori della RAM;
-- spike breve su fjall contro il contratto;
-- verificare in particolare batch atomico fra record, catalogo e log eventi, mapping di Durable, snapshot, range temporali e riapertura dopo crash;
-- misurare l'overhead del change log minimale senza duplicare il payload per default;
-- confrontare Delta, VersionRef e SelfContained con consumer lento, compaction e riavvio; vietare snapshot longevi come retention;
-- eseguire la matrice di compressione AProDB/backend definita in §19.6;
-- applicare criteri di uscita limitati: correttezza, capacità essenziali, build Windows/Linux e assenza di un blocco architetturale;
-- redb e RocksDB restano fallback documentati se fjall fallisce i fault test;
-- decisione registrata come ADR.
+- define the minimum storage contract: atomicity, durability, range scan, recovery, compaction, memory management, and support for datasets larger than RAM;
+- conduct a brief spike on fjall against the contract;
+- specifically verify atomic batch operations across record, catalog, and event log, Durable mapping, snapshots, temporal ranges, and reopening after crash;
+- measure the overhead of the minimal change log without duplicating payload by default;
+- compare Delta, VersionRef, and SelfContained with slow consumers, compaction, and restart; prohibit long-lived snapshots as retention;
+- execute the AProDB/backend compression matrix defined in §19.6;
+- apply limited exit criteria: correctness, essential capabilities, Windows/Linux build, and no architectural blocker;
+- redb and RocksDB remain documented fallbacks if fjall fails fault tests;
+- decision recorded as ADR.
 
-### Milestone 1 — Storage canonico single-node
+### Milestone 1 — Single-node canonical storage
 
 - directory lock;
-- adattatore sul backend scelto in Milestone 0.5, dietro il contratto di storage;
-- catalogo e change log logico AProDB nello stesso dominio transazionale dei record;
-- Put, Get, Delete, CAS e AtomicBatch;
-- durabilità Durable e Relaxed;
-- recovery e checkpoint;
-- limiti memoria;
-- test di fault injection sul contratto.
+- adapter for the backend chosen in Milestone 0.5, behind the storage contract;
+- AProDB catalog and logical change log in the same transactional domain as records;
+- Put, Get, Delete, CAS, and AtomicBatch;
+- Durable and Relaxed durability;
+- recovery and checkpoint;
+- memory limits;
+- fault injection tests on the contract.
 
-### Milestone 2 — Server multiprocesso
+### Milestone 2 — Multiprocess server
 
-- protocollo binario versionato;
-- local transport e TCP;
-- batching, deadline e backpressure;
-- auth di base e quote;
-- client Rust;
-- metriche;
-- CLI amministrativa.
+- versioned binary protocol;
+- local transport and TCP;
+- batching, deadlines, and backpressure;
+- basic authentication and quotas;
+- Rust client;
+- metrics;
+- administrative CLI.
 
-### Milestone 3 — Motore radiale e capacità storage
+### Milestone 3 — Radial engine and storage capacity
 
-- validazione e telemetria di segmenti, indici, flush e compaction offerti dal backend;
-- nessuna reimplementazione dei formati fisici senza ADR e prove di necessità;
-- cache separate;
-- radial descriptor e policy;
+- validation and telemetry of segments, indices, flush, and compaction provided by the backend;
+- no reimplementation of physical formats without an ADR and demonstrated necessity;
+- separate caches;
+- radial descriptor and policy;
 - TTL;
 - storage classes;
 - ExplainPlacement;
-- dataset superiore alla RAM.
+- datasets larger than RAM.
 
-### Milestone 4 — Workflow e superfici
+### Milestone 4 — Workflow and surfaces
 
-- Append, Claim, Heartbeat, Complete e Fail;
-- fencing e idempotenza;
+- Append, Claim, Heartbeat, Complete, and Fail;
+- fencing and idempotency;
 - change stream;
-- indici temporali/workflow;
-- projection builder incrementale;
-- surface generation e watermark;
-- formati pre-serializzati.
+- temporal/workflow indices;
+- incremental projection builder;
+- surface generation and watermark;
+- pre-serialized formats.
 
-### Milestone 5 — Compressione adattiva
+### Milestone 5 — Adaptive compression
 
-- codec per payload logico e formato versionato;
-- livelli per tier;
+- codec for logical and versioned payload;
+- tier levels;
 - adaptive Raw fallback;
-- dizionari versionati;
-- coordinamento per keyspace con la compressione fisica del backend;
-- cache compressa/decompressa;
-- budgeting dei canali;
-- telemetria e benchmark.
+- versioned dictionaries;
+- coordination for keyspace with physical backend compression;
+- compressed/decompressed cache;
+- channel budgeting;
+- telemetry and benchmark.
 
-### Milestone 6 — Compute eterogeneo
+### Milestone 6 — Heterogeneous compute
 
-- trait CPU reference;
-- scheduler a costo;
-- layout colonnare;
-- wgpu opzionale;
+- CPU reference trait;
+- cost-based scheduler;
+- columnar layout;
+- optional wgpu;
 - VRAM cache;
-- vector exact e top-k;
-- fault isolation e CPU fallback;
-- benchmark di pareggio.
+- exact vector and top-k;
+- fault isolation and CPU fallback;
+- parity benchmark.
 
-### Milestone 7 — Operabilità
+### Milestone 7 — Operability
 
 - backup/restore;
-- verify e repair controllato;
-- encryption at rest opzionale;
+- controlled verify and repair;
+- optional encryption at rest;
 - TLS/mTLS;
 - audit;
-- upgrade e import 0.1;
-- test lunghi e pacchetti.
+- upgrade and import 0.1;
+- long tests and packages.
 
-### Milestone 8 — Distribuzione, separata
+### Milestone 8 — Distribution, separate
 
-- specifica Raft;
+- Raft specification;
 - replicated logical log;
 - follower read;
 - snapshot install;
 - failover;
-- test di rete e partizione.
+- network and partition tests.
 
-Una milestone è completa soltanto quando codice, test, manuale e diario concordano. Funzioni parziali restano sperimentali e disabilitate per default.
+A milestone is complete only when code, tests, manual, and diary are in agreement. Partial functions remain experimental and are disabled by default.
 
-## 34. Decisioni architetturali stabilizzate
+## 34. Stabilized architectural decisions
 
-| Decisione | Esito |
-|---|---|
-| GPU obbligatoria | No; CPU reference sempre |
-| Collocazione GPU | Milestone 6 invariata; interfacce e layout preparati dalle fondazioni |
-| Modello di deployment | Server centrale, embedded esclusivo |
-| SQL generale | No in 1.x |
-| Fonte di verità | Stato transazionale del backend + catalogo e change log logico AProDB |
-| Storage engine | Contratto di backend; motore incorporato (fjall candidato, redb/RocksDB fallback) prima di un motore nativo |
-| Storage fisico | WAL, memtable, segmenti, manifest e compaction appartengono al backend incorporato |
-| Cambio backend | Non trasparente; richiede capability check ed export/import o migrazione verificata |
-| Durabilità | Modalità Durable unica con finestra di group commit configurabile |
-| Change log | Envelope minimale; payload completo non duplicato per default |
-| Retention eventi | Delta, VersionRef o SelfContained per collection; mai snapshot MVCC longevo |
-| Compressione | Logica AProDB e fisica backend coordinate per keyspace tramite ADR e benchmark |
-| Radial score | Minimo (freshness + workflow + pin); altri segnali solo se misurati |
-| Superficie | Derivata, incrementale, generazionale |
-| Spostamento radiale | Proiezioni prima di riscrittura canonica |
-| Concorrenza scritture | Single logical writer per shard |
-| Atomicità | Entro partizione |
-| Cross-shard serializable | Fuori 1.x |
-| Semantica worker | At-least-once + idempotenza + fencing |
-| Cache | Budget separate, ammissione radiale TinyLFU |
-| I/O predefinito | Buffered; direct sperimentale e misurato |
-| Formato GPU | Colonnare e ricostruibile |
-| Replica | Progettata, non parte del primo server |
-| Business logic nel DB | No; operatori interni limitati e deterministici |
-| Compatibilità Redis | Gateway futuro |
+| Decision                 | Outcome                                                                                 |
+|-------------------------|----------------------------------------------------------------------------------------|
+| Mandatory GPU           | No; CPU reference always                                                                 |
+| GPU placement           | Milestone 6 unchanged; interfaces and layouts prepared by foundations                    |
+| Deployment model        | Central server, embedded exclusive                                                      |
+| General SQL             | Not in 1.x                                                                              |
+| Source of truth         | Backend transactional state + catalog and AProDB logical change log                      |
+| Storage engine          | Backend contract; embedded engine (Fjall candidate, redb/RocksDB fallback) before a native engine |
+| Physical storage        | WAL, memtable, segments, manifests, and compaction belong to the embedded backend        |
+| Backend change          | Not transparent; requires capability check and export/import or verified migration       |
+| Durability              | Single durable mode with configurable group commit window                                |
+| Change log              | Minimal envelope; full payload not duplicated by default                                 |
+| Event retention         | Delta, VersionRef, or SelfContained per collection; never long-lived MVCC snapshot       |
+| Compression             | AProDB logical and backend physical compression coordinated per keyspace via ADR and benchmark |
+| Radial score            | Minimum (freshness + workflow + pin); other signals only if measured                    |
+| Surface                 | Derived, incremental, generational                                                      |
+| Radial displacement     | Projections before canonical rewrite                                                    |
+| Write concurrency       | Single logical writer per shard                                                         |
+| Atomicity               | Within partition                                                                        |
+| Cross-shard serializable| Not in 1.x                                                                              |
+| Worker semantics        | At-least-once + idempotency + fencing                                                   |
+| Cache                   | Separate budgets, radial TinyLFU admission                                              |
+| Default I/O             | Buffered; direct is experimental and measured                                           |
+| GPU format              | Columnar and reconstructable                                                            |
+| Replication             | Designed, not part of the first server                                                  |
+| Business logic in DB    | No; only limited and deterministic internal operators                                   |
+| Redis compatibility     | Future gateway                                                                          |
 
-## 35. Rischi principali
+## 35. Main risks
 
-### 35.1 Complessità
+### 35.1 Complexity
 
-Integrare database, workflow, cache e GPU può creare un sistema troppo ampio. Mitigazione: milestone, feature flag, formati semplici, CPU reference e nessuna replica prima della maturità single-node.
+Integrating database, workflow, cache, and GPU can create a system that is too large.
+Mitigation: milestones, feature flags, simple formats, CPU reference, and no replication before single-node maturity.
 
 ### 35.2 Write amplification
 
-Compaction e migrazione possono consumare storage. Mitigazione: segmenti temporali, proiezioni ricostruibili, token I/O e metrica esplicita.
+Compaction and migration can consume storage.
+Mitigation: temporal segments, reconstructable projections, I/O tokens, and explicit metrics.
 
 ### 35.3 Cache pollution
 
-Feed e scansioni possono espellere lookup utili. Mitigazione: pool e classi di ammissione separate, TinyLFU e bypass.
+Feeds and scans can evict useful lookups.
+Mitigation: separate pools and admission classes, TinyLFU, and bypass.
 
-### 35.4 Thrashing radiale
+### 35.4 Radial thrashing
 
-Dati al confine possono oscillare. Mitigazione: isteresi, permanenza minima, costo di migrazione e rate limit.
+Boundary data can oscillate between tiers.
+Mitigation: hysteresis, minimum residency, migration cost, and rate limits.
 
-### 35.5 GPU negativa
+### 35.5 Negative GPU payoff
 
-Trasferimenti e driver possono peggiorare latenza o stabilità. Mitigazione: modello di costo, soglie calibrate, circuit breaker e fallback CPU.
+Transfers and drivers can worsen latency or stability.
+Mitigation: cost model, calibrated thresholds, circuit breaker, and CPU fallback.
 
-### 35.6 Coerenza delle proiezioni
+### 35.6 Projection coherence
 
-Una superficie veloce ma obsoleta può mostrare dati errati. Mitigazione: watermark, generazioni atomiche, read-your-writes token e rebuild verificabile.
+A fast but outdated surface can show incorrect data.
+Mitigation: watermark, atomic generations, read-your-writes token, and verifiable rebuild.
 
-### 35.7 Corruzione e upgrade
+### 35.7 Corruption and upgrade
 
-Un formato giovane è rischioso. Mitigazione: versioning, golden file, fuzz, checker, backup e upgrade non distruttivo.
+A young format is risky.
+Mitigation: versioning, golden file, fuzzing, checker, backup, and non-destructive upgrade.
 
-### 35.8 Specializzazione eccessiva
+### 35.8 Excessive specialization
 
-Inserire logica di Commit renderebbe AProDB poco generale. Mitigazione: primitive di workflow generiche e proiezioni dichiarative; traduzioni e decisioni editoriali restano esterne.
+Including commit logic would make AProDB less general.
+Mitigation: generic workflow primitives and declarative projections; translations and editorial decisions remain external.
 
-## 36. Criterio di completamento del prodotto 1.0
+## 36. Product 1.0 completion criteria
 
-AProDB 1.0 è dichiarabile quando:
+AProDB 1.0 can be declared complete when:
 
-- il server multiprocesso single-node è il percorso raccomandato;
-- recovery supera fault injection e kill loop;
-- l'ACK Durable sopravvive ai test di crash previsti;
-- dataset maggiori della RAM sono supportati;
-- memoria, code e disco hanno limiti;
-- claim/lease/fencing sono verificati concorrentemente;
-- superfici sono incrementali e riportano watermark;
-- compressione adattiva e dizionari sono recuperabili;
-- CPU-only supera l'intera suite funzionale;
-- GPU è opzionale, isolata e misurata;
-- backup viene ripristinato automaticamente in test;
-- protocollo e file format sono versionati;
-- manuale descrive solo realtà;
-- benchmark server equi sono pubblicati con configurazione;
-- non esistono difetti noti di perdita dati classificati come minori.
+- the single-node multiprocess server is the recommended path;
+- recovery passes fault injection and kill loop tests;
+- durable ACK survives the specified crash tests;
+- datasets larger than RAM are supported;
+- memory, queues, and disk have limits;
+- claim/lease/fencing are verified under concurrency;
+- surfaces are incremental and report watermarks;
+- adaptive compression and dictionaries are recoverable;
+- CPU-only passes the entire functional suite;
+- GPU is optional, isolated, and measured;
+- backup is automatically restored in test;
+- protocol and file format are versioned;
+- manual describes only what is implemented;
+- fair benchmark servers are published with configuration;
+- there are no known data loss defects classified as minor.
 
-## 37. Fonti tecniche
+## 37. Technical sources
 
-Queste fonti sostengono principi e confronti; non trasferiscono automaticamente le loro garanzie ad AProDB.
+These sources support principles and comparisons; they do not automatically transfer their guarantees to AProDB.
 
-1. Intel, **Intel 64 and IA-32 Architectures Optimization Reference Manual**: cache, memoria e ottimizzazione del layout.
+1. Intel, **Intel 64 and IA-32 Architectures Optimization Reference Manual**: cache, memory, and layout optimization.
    https://www.intel.com/content/www/us/en/developer/articles/technical/intel64-and-ia32-architectures-optimization.html
-2. NVIDIA, **CUDA C++ Best Practices Guide**: costo dei trasferimenti, pinned memory e sovrapposizione asincrona.
+2. NVIDIA, **CUDA C++ Best Practices Guide**: transfer costs, pinned memory, and asynchronous overlap.
    https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html
-3. Apache Arrow, **Columnar Format**: rappresentazioni colonnari interoperabili.
+3. Apache Arrow, **Columnar Format**: interoperable columnar representations.
    https://arrow.apache.org/docs/format/Columnar.html
-4. Meta, **Zstandard Manual**: livelli, riuso dei contesti e dizionari.
+4. Meta, **Zstandard Manual**: levels, context reuse, and dictionaries.
    https://facebook.github.io/zstd/zstd_manual.html
 5. Einziger et al., **TinyLFU: A Highly Efficient Cache Admission Policy**.
    https://arxiv.org/abs/1512.00727
-6. Redis, **Key eviction**: LRU/LFU approssimati e limiti di memoria.
+6. Redis, **Key eviction**: approximate LRU/LFU and memory limits.
    https://redis.io/docs/latest/develop/reference/eviction/
-7. RocksDB, **Block Cache**: cache compresse/non compresse e sharding.
+7. RocksDB, **Block Cache**: compressed/uncompressed cache and sharding.
    https://github.com/facebook/rocksdb/wiki/Block-Cache
-8. RocksDB, **Write Ahead Log File Format** e **RocksDB Overview**: WAL, memtable, segmenti e compaction.
+8. RocksDB, **Write Ahead Log File Format** and **RocksDB Overview**: WAL, memtable, segments, and compaction.
    https://github.com/facebook/rocksdb/wiki/Write-Ahead-Log-File-Format
    https://github.com/facebook/rocksdb/wiki/RocksDB-Overview
-9. PostgreSQL, **Concurrency Control** e **Transaction Isolation**: perimetro delle garanzie concorrenti e significato di serializzabilità.
+9. PostgreSQL, **Concurrency Control** and **Transaction Isolation**: scope of concurrency guarantees and meaning of serializability.
    https://www.postgresql.org/docs/current/mvcc.html
    https://www.postgresql.org/docs/current/transaction-iso.html
-10. PostgreSQL, **REFRESH MATERIALIZED VIEW**: sostituzione del contenuto e comportamento di CONCURRENTLY, rilevante per il confronto con superfici incrementali.
+10. PostgreSQL, **REFRESH MATERIALIZED VIEW**: replacement of content and behavior of CONCURRENTLY, relevant for comparison with incremental surfaces.
     https://www.postgresql.org/docs/current/sql-refreshmaterializedview.html
-11. NVM Express, **Base Specification**: submission/completion queue e ordinamento delle operazioni.
+11. NVM Express, **Base Specification**: submission/completion queue and ordering of operations.
     https://nvmexpress.org/wp-content/uploads/NVMe-NVM-Express-2.0a-2021.07.26-Ratified.pdf
-12. Ongaro e Ousterhout, **In Search of an Understandable Consensus Algorithm**: base per la futura replica leader-based.
+12. Ongaro and Ousterhout, **In Search of an Understandable Consensus Algorithm**: foundation for future leader-based replication.
     https://web.stanford.edu/~ouster/cgi-bin/papers/raft-extended.pdf
-13. Fjall, **KeyspaceCreateOptions**, **CompressionType**, **Snapshot** e **SeqNo**: policy di compressione e limiti della retention tramite snapshot/versioni MVCC nel backend candidato.
+13. Fjall, **KeyspaceCreateOptions**, **CompressionType**, **Snapshot**, and **SeqNo**: compression policy and retention limits via snapshots/MVCC versions in the candidate backend.
     https://docs.rs/fjall/latest/fjall/struct.KeyspaceCreateOptions.html
     https://docs.rs/fjall/latest/fjall/enum.CompressionType.html
     https://docs.rs/fjall/latest/fjall/struct.Snapshot.html
     https://docs.rs/fjall/latest/fjall/type.SeqNo.html
 
-## Appendice A — Macchina a stati del lavoro
+## Appendix A — Work state machine
 
-Stati minimi suggeriti:
+Suggested minimum states:
 
     pending -> leased -> completed
        |         |           |
@@ -1643,66 +1689,66 @@ Stati minimi suggeriti:
        +-> dead_letter
        +-> cancelled
 
-Transizioni:
+Transitions:
 
-- pending a leased: Claim atomico;
-- leased a pending: lease scaduto o Fail ritentabile;
-- leased a completed: Complete con fencing valido;
-- completed a published: Publish idempotente;
-- pending/leased a dead_letter: limite tentativi o errore permanente;
-- qualsiasi stato non finale a cancelled: operazione autorizzata e versionata.
+- pending to leased: atomic Claim;
+- leased to pending: lease expired or retryable Fail;
+- leased to completed: Complete with valid fencing;
+- completed to published: idempotent Publish;
+- pending/leased to dead_letter: attempt limit or permanent error;
+- any non-final state to cancelled: authorized and versioned operation.
 
-Le collection possono aggiungere stati, ma devono dichiarare transizioni consentite. Il motore non interpreta il significato editoriale.
+Collections may add states, but must declare permitted transitions. The engine does not interpret editorial meaning.
 
-## Appendice B — Esempio di policy radiale
+## Appendix B — Example of radial policy
 
-Una collection di notizie potrebbe dichiarare:
+A news collection could declare:
 
-- emivita freshness: 60 minuti;
-- superficie pubblica: ultime 24 ore, massimo 10.000 elementi;
-- superficie di lavoro: stato pending, ordinata per urgenza e tempo;
-- hot retention minima: 15 minuti;
-- warm: 7 giorni;
-- cold: 180 giorni;
-- archive: oltre 180 giorni;
-- traduzioni come record/proiezioni dipendenti;
-- commenti con emivita diversa;
-- pin per breaking news;
-- rebuild cost elevato per risultati di modelli costosi.
+- Freshness half-life: 60 minutes;
+- public area: last 24 hours, maximum 10,000 items;
+- work surface: condition hanging, ordered by urgency and time;
+- minimum holding: 15 minutes;
+- warm: 7 days;
+- Cold: 180 days;
+- archive: over 180 days;
+- translations as records/staff projections;
+- comments with distinct half-life;
+- pinning for breaking news;
+- high cost rebuild for results of expensive models.
 
-Questi valori sono esempio, non default universali.
+These values are examples, not universal defaults.
 
-## Appendice C — Matrice dei guasti
+## Appendix C — Fault matrix
 
-| Evento | Comportamento richiesto |
+| Event | Required behaviour |
 |---|---|
-| Crash prima del commit backend | Nessun ACK, nessuna mutazione |
-| Crash dopo commit Durable ma prima della pubblicazione RAM | Recovery o rilettura espone la mutazione |
-| Crash durante commit | Il backend non rende visibile un batch parziale |
-| Record aggiornato senza change log | Violazione del contratto; stop controllato |
-| Crash durante checkpoint | Resta valido il checkpoint precedente |
-| File temporaneo del backend | Gestito dal recovery documentato del backend |
-| Disco pieno | Throttle/read-only, nessuna cancellazione implicita |
-| GPU persa | Fallback CPU, VRAM rebuild |
-| Projection builder fermo | Record canonici disponibili, staleness visibile |
-| Worker oltre lease | Fencing rifiuta Complete |
-| Orologio arretra | Sequence preserva ordine; lease usa policy di sicurezza |
-| Dizionario mancante | Errore di integrità, non bytes incomprensibili restituiti |
-| Cache corrotta | Scarto e ricostruzione |
-| Stato canonico del backend corrotto | Stop controllato o restore/repair esplicito |
+| Crash before backend commit | No ACK, no mutations |
+| Crash after durable commit but before RAM publication | Recovery or rereading exposes the mutation |
+| Crash during commit | The backend does not make a partial batch visible |
+| Record updated without change log | Contract violation; controlled stop |
+| Crash during checkpoint | Previous checkpoint remains valid |
+| Temporary backend file | Managed by documented backend recovery |
+| Full disk | Throttle/read-only, no implicit deletion |
+| GPU lost | CPU fallback, VRAM rebuild |
+| Projection builder stopped | Canonical records available, visible staleness |
+| Worker beyond lease | Fencing rejects Complete |
+| Clock goes backward | Sequence preserves order; lease uses safety policy |
+| Missing dictionary | Integrity error, no incomprehensible bytes returned |
+| Corrupt cache | Discard and rebuild |
+| Canonical state of backend corrupted | Controlled stop or explicit restore/repair |
 
-## Appendice D — Glossario
+## Appendix D — Glossary
 
-- **canonico:** necessario per ricostruire lo stato confermato;
-- **derivato:** eliminabile e ricostruibile;
-- **superficie:** proiezione pronta per consumo a bassa latenza;
-- **settore:** fase o finalità indipendente dal tier;
-- **radial score:** segnale di placement, mai regola di correttezza;
-- **watermark:** massima sequence sorgente applicata;
-- **generation:** versione immutabile pubblicata di una proiezione;
-- **lease:** possesso temporaneo di un lavoro;
-- **fencing token:** numero che impedisce a un proprietario obsoleto di scrivere;
-- **compaction debt:** lavoro necessario accumulato per mantenere il motore;
-- **durability receipt:** prova applicativa del livello applicato a una mutazione;
-- **storage class:** destinazione fisica con budget e caratteristiche;
-- **CPU reference:** implementazione semanticamente autorevole disponibile ovunque.
+- **canonical:** necessary to reconstruct the confirmed state;
+- **derived:** disposable and reconstructable;
+- **surface:** projection ready for low-latency consumption;
+- **sector:** stage or purpose independent of tier;
+- **radial score:** placement signal, never a correctness rule;
+- **watermark:** highest source sequence applied;
+- **generation:** immutable published version of a projection;
+- **lease:** temporary possession of a task;
+- **fencing token:** number that prevents an obsolete owner from writing;
+- **compaction debt:** accumulated work required to maintain the engine;
+- **durability receipt:** application-level proof for a mutation's durability;
+- **storage class:** physical destination with budget and characteristics;
+- **CPU reference:** semantically authoritative implementation available everywhere.
