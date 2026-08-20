@@ -2,6 +2,20 @@
 
 AProDB remains a public beta. The measurements below are reproducible validation evidence, not an SLA or a claim of universal superiority.
 
+## External validation rerun — Vast.ai
+
+The reference rerun was executed on a disposable Vast.ai host (RTX 5080 16 GB, 30 GB RAM, 100 GB workspace disk). No measurements in this section were taken on the developer laptop. The host was destroyed after the run and no Vast.ai instance remains active.
+
+| Test | Result | Evidence |
+| --- | --- | --- |
+| Full CPU workspace tests | PASS | `cargo test --workspace --no-default-features` |
+| AProDB stress, 2,000,000 × 2 KiB | PASS | 4.218 GB physical, 339,788 ingest/s, 1,142,687 reads/s, p99 1.2 µs |
+| Recovery/fault test suite | PASS | Included in the external workspace test run |
+| GPU availability | VERIFIED, unused | RTX 5080 detected; storage path is CPU-only by design |
+| Clippy with Rust 1.98 | BLOCKED BY TOOLCHAIN LINT | `chunks_exact_to_as_chunks` in existing `src/value.rs:110`; no source change made |
+
+The 2-million-record run is a validated external operating point, not an out-of-RAM claim: the host had approximately 27 GB available RAM. A true memory-exhaustion test remains intentionally bounded because it would require a larger host and a controlled disk-failure budget.
+
 ## Test matrix
 
 | Area | Workload or invariant | Result | Evidence |
