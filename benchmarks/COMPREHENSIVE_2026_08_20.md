@@ -43,6 +43,10 @@ The common comparative workload is an ingest/read/ordered-scan mix, not the full
 
 The bounded update phase is now implemented in the comparative harness (`--updates`), using upsert semantics for AProDB, SQLite, PostgreSQL and MySQL/MariaDB and SET semantics for Redis. A 10,000-update run completed on all three compared backends above. A true out-of-RAM run was not forced: available Vast offers did not provide the required RAM/disk combination reliably, and the disposable 48 GB/30 GB host was deliberately kept below OOM.
 
+## Write-path ablation laboratory
+
+A temporary uncommitted laboratory isolated the main write-path costs on 50,000 durable 512-byte records. With a batch size of 500, switching from durable to relaxed mode improved throughput from roughly 49–50k to 54–60k records/s. Disabling logical compression changed throughput only slightly: compression was neutral to mildly beneficial for repetitive data because it reduced bytes written, while random data paid a small CPU cost. Batch size was the strongest factor: durable compressed throughput rose from about 24–27k records/s at 50-record batches to 49–59k at 500 and 58–59k at 5,000. The largest isolated bottlenecks are therefore per-batch durability/flush overhead and too-small batches, not hashing or compression itself.
+
 ## Hash-token laboratory
 
 A temporary, uncommitted BLAKE3 laboratory tested 50,000 durable 512-byte records. With unique payloads, hashing plus content-addressed writes took 948.6 ms versus 839.7 ms for direct writes (about 13% slower). With 100 repeated payloads, deduplication reduced the write phase to 75.3 ms versus 844.2 ms (about 11.2x faster) because only 100 payloads were persisted. This validates a conditional design: content tokens help when duplicate payloads are common, but add overhead for unique data. GPU hashing was not added; for individual records transfer overhead would likely dominate, and a GPU path should be evaluated only for large batches.
