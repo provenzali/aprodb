@@ -784,6 +784,7 @@ impl BenchBackend for MysqlBackend {
     fn physical_data_bytes(&mut self) -> BenchResult<u64> {
         // TABLES metrics are available to ordinary benchmark users; querying
         // InnoDB tablespace metadata would require the PROCESS privilege.
+        self.connection.query_drop("ANALYZE TABLE bench_kv")?;
         let bytes = self.connection.query_first::<(Option<u64>, Option<u64>), _>(
             "SELECT DATA_LENGTH, INDEX_LENGTH FROM information_schema.TABLES
              WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='bench_kv'",
