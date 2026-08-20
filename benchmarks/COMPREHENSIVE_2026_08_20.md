@@ -25,6 +25,9 @@ AProDB remains a public beta. The measurements below are reproducible validation
 | Stress: 2M | random, 2 KiB values | PASS | 4.218 GB physical; ingest 20.1k/s, read 25.7k/s, p99 390.9 µs |
 | MySQL 8.0.46 | random, 50k × 512 B | PASS | 33.6k ingest/s, 30.8k read/s, p99 50.6 µs, 38.42 MB |
 | Redis 6.0.16 | random, 50k × 512 B | PASS | 243k ingest/s, 29.9k read/s, p99 43.9 µs, 40.43 MB |
+| AProDB updates | random, 50k + 10k updates | PASS | 102–105k updates/s, 1.76–1.78M reads/s, p99 0.9 µs |
+| MySQL updates | random, 50k + 10k updates | PASS | 25.6–29.8k updates/s, 30.2–33.2k reads/s, p99 49–54 µs |
+| Redis updates | random, 50k + 10k updates | PASS | 384–481k updates/s, 26.0–28.2k reads/s, p99 49–54 µs |
 
 The stress sequence reached two million records and 4.218 GB of physical data without a crash, corruption, timeout, or recovery failure. It did not exhaust the host memory or disk; therefore this is a tested operating point, not the maximum capacity. The first intentional failure boundary remains the configured resource limits (record/frame size, scan/change-stream limits, vector batch limits, and server queue limits), which return structured resource-limit errors instead of attempting unbounded allocation.
 
@@ -37,6 +40,8 @@ On one disposable Linux host (48 GB RAM, 40 GB workspace disk), MySQL Community 
 The benchmark process itself peaked at approximately 75 MB RSS; daemon memory for MySQL and Redis is not included in that process-level figure. The 2M-record AProDB run is the largest completed stress point. A true out-of-RAM run requires a larger disposable host and is intentionally not forced on a 48 GB/40 GB machine.
 
 The common comparative workload is an ingest/read/ordered-scan mix, not the full YCSB update-heavy suite. No YCSB harness was added to the product because that would be benchmark tooling rather than a storage feature; it remains a clearly labelled follow-up.
+
+The bounded update phase is now implemented in the comparative harness (`--updates`), using upsert semantics for AProDB, SQLite, PostgreSQL and MySQL/MariaDB and SET semantics for Redis. A 10,000-update run completed on all three compared backends above. A true out-of-RAM run was not forced: available Vast offers did not provide the required RAM/disk combination reliably, and the disposable 48 GB/30 GB host was deliberately kept below OOM.
 
 ## AProDB: advantages
 

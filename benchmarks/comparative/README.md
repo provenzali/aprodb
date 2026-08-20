@@ -27,6 +27,8 @@ cargo run --release --manifest-path benchmarks/comparative/Cargo.toml -- `
 
 The runner writes `report.json` after each individual trial. If a backend fails, it retains the valid results already collected, records the error, and exits with a nonzero code.
 
+Add an update phase with `--updates 10000` to exercise bounded upserts/SET operations on existing keys before the read phase.
+
 The broader validation matrix and AProDB trade-off report is maintained in [`../COMPREHENSIVE_2026_08_20.md`](../COMPREHENSIVE_2026_08_20.md).
 
 To run only the embedded backends, which do not require servers:
