@@ -329,7 +329,7 @@ These are local measurements, not SLA values; they justify the conservative defa
 
 ## 17. Benchmark against external databases
 
-The `benchmarks/comparative` crate compares AProDB with SQLite, PostgreSQL, MySQL, and MariaDB using identical keys and payloads. It is independent of the main crate: SQL drivers are not included in applications that depend on AProDB.
+The `benchmarks/comparative` crate compares AProDB with SQLite, PostgreSQL, MySQL, MariaDB, and Redis/Valkey using identical keys and payloads. It is independent of the main crate: SQL and Redis drivers are not included in applications that depend on AProDB.
 
 ### Protocol
 
@@ -345,7 +345,7 @@ Full execution, after creating `aprodb_bench` on the servers:
 
 ```powershell
 cargo run --release --manifest-path benchmarks/comparative/Cargo.toml -- `
-  --backends aprodb,sqlite,postgres,mysql,mariadb `
+  --backends aprodb,sqlite,postgres,mysql,mariadb,redis `
   --profiles compressible,random `
   --records 50000 --reads 50000 --payload-bytes 512 `
   --batch-size 500 --runs 3 --scan-repeats 20 --scan-limit 1000
@@ -358,7 +358,7 @@ cargo run --release --manifest-path benchmarks/comparative/Cargo.toml -- `
   --backends aprodb,sqlite --profiles compressible,random
 ```
 
-The runner accepts custom URLs with `--postgres-url`, `--mysql-url`, and `--mariadb-url`. It writes an incremental JSON report under the `--workdir`; a backend error does not erase previously completed tests.
+The runner accepts custom URLs with `--postgres-url`, `--mysql-url`, `--mariadb-url`, and `--redis-url`. It writes an incremental JSON report under the `--workdir`; a backend error does not erase previously completed tests.
 
 ### Local results as of 19 August 2026
 
@@ -379,7 +379,7 @@ On an Intel Core i5-1340P with 16 threads and NVMe SSD, all 30 tests passed veri
 
 On this workload, AProDB leads in point lookups and space usage on compressible data. It does not lead in durable ingestion: MariaDB wins in both profiles, and PostgreSQL surpasses AProDB on random data. SQLite dominates scans because it uses the ordered primary key, while AProDB's `scan_prefix` currently scans all shards. This highlights ordered indexes as a concrete priority.
 
-The embedded vs. client-server comparison must be interpreted correctly. AProDB and SQLite do not use network communication; PostgreSQL, MySQL, and MariaDB use a local TCP connection and SQL parsing. AProDB keeps the active dataset in RAM. The SQL space does not include global redo/WAL. The test does not measure maximum capacity, concurrent clients, joins, replication, or fault recovery, and is not an SLA. Methodology and full tables are in `benchmarks/comparative/RESULTS.md`.
+The embedded vs. client-server comparison must be interpreted correctly. AProDB and SQLite do not use network communication; PostgreSQL, MySQL, MariaDB, and Redis/Valkey use a local TCP connection. AProDB keeps the active dataset in RAM. SQL space does not include global redo/WAL, and Redis/Valkey space is `used_memory_dataset`, not AOF/RDB bytes. The test does not measure maximum capacity, concurrent clients, joins, replication, or fault recovery, and is not an SLA. Methodology and full tables are in `benchmarks/comparative/RESULTS.md`.
 
 ## 18. Engine capacity and choice
 

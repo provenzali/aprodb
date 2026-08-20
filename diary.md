@@ -570,3 +570,30 @@ suite passed 3 tests, the wire golden suite passed 2 tests, the 0.1 database sui
 and the one-shot migration test passed.
 The final scan covered 32 Markdown files, found no missing local links or residual Italian prose,
 and verified that both Mermaid blocks use English labels. `git diff --check` passed.
+
+## 2026-08-20 — Comparative benchmark hardening and Vast.ai gate
+
+Objective: prepare fairer database validation before running paid Vast.ai hosts.
+
+Decision: the comparative benchmark remains a separate crate, but it now declares its own local
+workspace so it can be run by manifest path from inside the repository without Cargo workspace
+ambiguity. Redis/Valkey support was added as an explicit backend. The Redis/Valkey path stores
+payloads as strings and maintains a sorted-set lexicographic index for range scans; its reported
+size is `used_memory_dataset`, not on-disk AOF/RDB bytes.
+
+Validation:
+
+- `cargo test --workspace --no-default-features --quiet`: passed; two long operational gates remain intentionally ignored.
+- `cargo fmt --all --check`: passed.
+- `cargo clippy --workspace --all-targets --no-default-features -- -D warnings`: passed.
+- `cargo clippy --manifest-path benchmarks/comparative/Cargo.toml --all-targets -- -D warnings`: passed.
+- Embedded smoke benchmark with AProDB and SQLite, 5,000 records, both compressible and random profiles: passed and wrote a local JSON report under `target/bench-lab/smoke-local-2`.
+
+Problem: a Vast.ai instance left from the Supabase sanitization attempt was found running. It was
+destroyed and a follow-up `show instances` returned no active instances. During the first CLI check
+the key file was passed without stripping its label line, and the CLI echoed sensitive header
+content in its error. The key was not written to the repository, but the safe next operational step
+is to rotate the Vast.ai API key before creating new instances.
+
+Limit: paid Vast.ai benchmark execution is intentionally gated until the key is rotated or the
+operator explicitly confirms reuse of the exposed key.
