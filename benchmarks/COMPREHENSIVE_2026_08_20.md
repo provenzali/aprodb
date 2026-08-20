@@ -22,8 +22,9 @@ AProDB remains a public beta. The measurements below are reproducible validation
 | Stress: 100k | random, 1 KiB values | PASS | 108.5 MB physical |
 | Stress: 500k | random, 1 KiB values | PASS | 542.5 MB physical |
 | Stress: 1M | random, 1 KiB values | PASS | 1.085 GB physical |
+| Stress: 2M | random, 2 KiB values | PASS | 4.218 GB physical; ingest 20.1k/s, read 25.7k/s, p99 390.9 µs |
 
-The stress sequence reached one million records without a crash, corruption, timeout, or recovery failure. It did not exhaust the host memory or disk; therefore this is a tested operating point, not the maximum capacity. The first intentional failure boundary remains the configured resource limits (record/frame size, scan/change-stream limits, vector batch limits, and server queue limits), which return structured resource-limit errors instead of attempting unbounded allocation.
+The stress sequence reached two million records and 4.218 GB of physical data without a crash, corruption, timeout, or recovery failure. It did not exhaust the host memory or disk; therefore this is a tested operating point, not the maximum capacity. The first intentional failure boundary remains the configured resource limits (record/frame size, scan/change-stream limits, vector batch limits, and server queue limits), which return structured resource-limit errors instead of attempting unbounded allocation.
 
 The `--all-targets --include-ignored` Windows command also exposed a toolchain-only failure when a GPU-disabled throughput benchmark was run without the GPU feature. It is not a database failure; the ordinary CPU workspace gate passes.
 
