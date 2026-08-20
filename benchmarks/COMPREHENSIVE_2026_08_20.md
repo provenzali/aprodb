@@ -16,6 +16,27 @@ The reference rerun was executed on a disposable Vast.ai host (RTX 5080 16 GB, 3
 
 The 2-million-record run is a validated external operating point, not an out-of-RAM claim: the host had approximately 27 GB available RAM. A true memory-exhaustion test remains intentionally bounded because it would require a larger host and a controlled disk-failure budget.
 
+### Pure-write laboratory
+
+An isolated Vast.ai run measured only insertion of 100,000 identical 512-byte
+payloads. There were no reads, scans, updates, vector operations, or
+application-level indexes. AProDB used raw values (compression disabled) and
+1,000-record `put_batch` calls; Redis used one RESP pipeline and waited for the
+server replies.
+
+| Profile | Writes/s | Interpretation |
+| --- | ---: | --- |
+| AProDB Relaxed | 178,115 | WAL path without synchronous data flush |
+| AProDB Durable | 115,924 | WAL path with synchronous data flush |
+| Redis volatile | 704,950 | In-memory pipeline, no persistence requirement |
+
+This is the cleanest write-path comparison currently available. Redis is about
+4x faster than AProDB Relaxed and about 6x faster than AProDB Durable in this
+profile. The comparison is intentionally asymmetric in durability: Redis was
+volatile. A fair durable comparison requires a second run with Redis AOF and an
+explicit `fsync` policy; these volatile numbers must not be presented as an
+equivalent durable benchmark.
+
 ## Test matrix
 
 | Area | Workload or invariant | Result | Evidence |
