@@ -43,6 +43,10 @@ The common comparative workload is an ingest/read/ordered-scan mix, not the full
 
 The bounded update phase is now implemented in the comparative harness (`--updates`), using upsert semantics for AProDB, SQLite, PostgreSQL and MySQL/MariaDB and SET semantics for Redis. A 10,000-update run completed on all three compared backends above. A true out-of-RAM run was not forced: available Vast offers did not provide the required RAM/disk combination reliably, and the disposable 48 GB/30 GB host was deliberately kept below OOM.
 
+## Hash-token laboratory
+
+A temporary, uncommitted BLAKE3 laboratory tested 50,000 durable 512-byte records. With unique payloads, hashing plus content-addressed writes took 948.6 ms versus 839.7 ms for direct writes (about 13% slower). With 100 repeated payloads, deduplication reduced the write phase to 75.3 ms versus 844.2 ms (about 11.2x faster) because only 100 payloads were persisted. This validates a conditional design: content tokens help when duplicate payloads are common, but add overhead for unique data. GPU hashing was not added; for individual records transfer overhead would likely dominate, and a GPU path should be evaluated only for large batches.
+
 ## AProDB: advantages
 
 - Very fast point reads on the tested in-process workload, with deterministic bounded batches and queues.
