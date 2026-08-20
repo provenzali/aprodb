@@ -11,6 +11,7 @@ use clap::{Parser, ValueEnum};
 use hdrhistogram::Histogram;
 use mysql::{Conn, Opts, Params, TxOpts, Value as MyValue, prelude::Queryable};
 use postgres::{Client, NoTls, types::ToSql};
+use redis::{Commands, Connection as RedisConnection};
 use rusqlite::{Connection, params};
 use serde::Serialize;
 
@@ -25,6 +26,7 @@ enum BackendKind {
     Postgres,
     Mysql,
     Mariadb,
+    Redis,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, ValueEnum)]
@@ -35,12 +37,12 @@ enum PayloadProfile {
 }
 
 #[derive(Debug, Parser)]
-#[command(about = "Benchmark comparativo riproducibile per AProDB")]
+#[command(about = "Reproducible comparative benchmark for AProDB")]
 struct Args {
     #[arg(
         long,
         value_delimiter = ',',
-        default_value = "aprodb,sqlite,postgres,mysql,mariadb"
+        default_value = "aprodb,sqlite,postgres,mysql,mariadb,redis"
     )]
     backends: Vec<BackendKind>,
 
@@ -82,6 +84,9 @@ struct Args {
 
     #[arg(long, default_value = "mysql://root@127.0.0.1:53307/aprodb_bench")]
     mariadb_url: String,
+
+    #[arg(long, default_value = "redis://127.0.0.1:6379/0")]
+    redis_url: String,
 }
 
 #[derive(Clone)]
@@ -207,7 +212,8 @@ fn main() -> BenchResult<()> {
         failures: Vec::new(),
         notes: vec![
             "AProDB and SQLite run in-process; PostgreSQL, MySQL and MariaDB use one client connection over loopback TCP.".into(),
-            "Physical bytes are the AProDB data directory, SQLite database file after checkpoint, or SQL table plus indexes; server redo/WAL files are excluded.".into(),
+            "Redis/Valkey uses one loopback TCP connection and a sorted-set range index in addition to the string payloads.".into(),
+            "Physical bytes are the AProDB data directory, SQLite database file after checkpoint, SQL table plus indexes, or Redis/Valkey used_memory_dataset; server redo/WAL/AOF files are excluded.".into(),
             "The compressible profile models repetitive document/log fields; random is deterministic high-entropy binary data.".into(),
         ],
     };
@@ -298,6 +304,7 @@ fn make_backend(
         BackendKind::Postgres => Ok(Box::new(PostgresBackend::new(&args.postgres_url)?)),
         BackendKind::Mysql => Ok(Box::new(MysqlBackend::new(&args.mysql_url)?)),
         BackendKind::Mariadb => Ok(Box::new(MysqlBackend::new(&args.mariadb_url)?)),
+        BackendKind::Redis => Ok(Box::new(RedisBackend::new(&args.redis_url)?)),
     }
 }
 
@@ -697,7 +704,6 @@ impl BenchBackend for PostgresBackend {
 struct MysqlBackend {
     connection: Conn,
     version: String,
-    is_mariadb: bool,
 }
 
 impl MysqlBackend {
@@ -707,11 +713,9 @@ impl MysqlBackend {
         let version = connection
             .query_first::<String, _>("SELECT VERSION()")?
             .unwrap_or_else(|| "unknown".into());
-        let is_mariadb = version.to_ascii_lowercase().contains("mariadb");
         Ok(Self {
             connection,
             version,
-            is_mariadb,
         })
     }
 
@@ -778,16 +782,97 @@ impl BenchBackend for MysqlBackend {
     }
 
     fn physical_data_bytes(&mut self) -> BenchResult<u64> {
-        let query = if self.is_mariadb {
-            "SELECT FILE_SIZE FROM information_schema.INNODB_SYS_TABLESPACES
-             WHERE NAME=CONCAT(DATABASE(), '/bench_kv')"
-        } else {
-            "SELECT FILE_SIZE FROM information_schema.INNODB_TABLESPACES
-             WHERE NAME=CONCAT(DATABASE(), '/bench_kv')"
-        };
-        let bytes = self.connection.query_first::<u64, _>(query)?;
-        Ok(bytes.unwrap_or(0))
+        // TABLES metrics are available to ordinary benchmark users; querying
+        // InnoDB tablespace metadata would require the PROCESS privilege.
+        let bytes = self.connection.query_first::<(Option<u64>, Option<u64>), _>(
+            "SELECT DATA_LENGTH, INDEX_LENGTH FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='bench_kv'",
+        )?;
+        Ok(bytes.map(|(data, index)| data.unwrap_or(0) + index.unwrap_or(0)).unwrap_or(0))
     }
+}
+
+struct RedisBackend {
+    connection: RedisConnection,
+    version: String,
+}
+
+impl RedisBackend {
+    fn new(url: &str) -> BenchResult<Self> {
+        let client = redis::Client::open(url)?;
+        let mut connection = client.get_connection()?;
+        let info: String = redis::cmd("INFO").arg("server").query(&mut connection)?;
+        let version = parse_info_value(&info, "redis_version")
+            .or_else(|| parse_info_value(&info, "valkey_version"))
+            .unwrap_or_else(|| "unknown".into());
+        Ok(Self {
+            connection,
+            version,
+        })
+    }
+}
+
+impl BenchBackend for RedisBackend {
+    fn version(&self) -> &str {
+        &self.version
+    }
+
+    fn reset(&mut self) -> BenchResult<()> {
+        redis::cmd("FLUSHDB").query::<()>(&mut self.connection)?;
+        Ok(())
+    }
+
+    fn ingest(&mut self, records: &[Record], batch_size: usize) -> BenchResult<()> {
+        for chunk in records.chunks(batch_size) {
+            let mut pipe = redis::pipe();
+            for record in chunk {
+                pipe.cmd("SET").arg(&record.key).arg(&record.value);
+                pipe.cmd("ZADD").arg("bench_index").arg(0).arg(&record.key);
+            }
+            pipe.query::<()>(&mut self.connection)?;
+        }
+        Ok(())
+    }
+
+    fn get_len(&mut self, key: &str) -> BenchResult<Option<usize>> {
+        let exists: bool = self.connection.exists(key)?;
+        if !exists {
+            return Ok(None);
+        }
+        let length: usize = redis::cmd("STRLEN").arg(key).query(&mut self.connection)?;
+        Ok(Some(length))
+    }
+
+    fn scan(&mut self, lower: &str, upper: &str, limit: usize) -> BenchResult<(usize, usize)> {
+        let keys: Vec<String> = redis::cmd("ZRANGEBYLEX")
+            .arg("bench_index")
+            .arg(format!("[{lower}"))
+            .arg(format!("({upper}"))
+            .arg("LIMIT")
+            .arg(0)
+            .arg(limit)
+            .query(&mut self.connection)?;
+        let mut pipe = redis::pipe();
+        for key in &keys {
+            pipe.cmd("STRLEN").arg(key);
+        }
+        let lengths: Vec<usize> = pipe.query(&mut self.connection)?;
+        Ok((keys.len(), lengths.iter().sum()))
+    }
+
+    fn physical_data_bytes(&mut self) -> BenchResult<u64> {
+        let info: String = redis::cmd("INFO").arg("memory").query(&mut self.connection)?;
+        Ok(parse_info_value(&info, "used_memory_dataset")
+            .or_else(|| parse_info_value(&info, "used_memory"))
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(0))
+    }
+}
+
+fn parse_info_value(info: &str, key: &str) -> Option<String> {
+    info.lines()
+        .filter_map(|line| line.split_once(':'))
+        .find_map(|(name, value)| (name == key).then(|| value.trim().to_owned()))
 }
 // SPDX-FileCopyrightText: 2026 Andrea Provenzali
 // SPDX-License-Identifier: AGPL-3.0-only

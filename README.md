@@ -137,6 +137,10 @@ cargo run -p aprodb-cli --bin aprodb-ops -- import-0.1 .\legacy .\legacy-copy .\
 
 A bounded PostgreSQL-to-AProDB validation importer is also available in public beta. It publishes a new data directory only after a complete stream and two successful verification passes. Read its [scope, safety model, mapping, and limitations](docs/postgresql-import.md) before using it against a live server.
 
+The comparative benchmark is kept outside the main dependency graph and currently covers AProDB,
+SQLite, PostgreSQL, MySQL, MariaDB, and Redis/Valkey. Results must state durability settings and
+the embedded-vs-loopback boundary; see [benchmarks/comparative](benchmarks/comparative).
+
 ## What the 0.1 prototype implements
 
 - an in-memory working set split into concurrent shards;
