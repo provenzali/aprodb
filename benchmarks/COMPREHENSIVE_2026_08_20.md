@@ -37,6 +37,24 @@ volatile. A fair durable comparison requires a second run with Redis AOF and an
 explicit `fsync` policy; these volatile numbers must not be presented as an
 equivalent durable benchmark.
 
+### GPU write-preparation laboratory
+
+An uncommitted GPU-only preparation experiment was run on Vast.ai with an RTX
+5070. A WGSL kernel generated 20,000 512-byte payloads in VRAM; the benchmark
+included readback to RAM and the final AProDB `put_batch` (Relaxed). The CPU
+control generated the same payloads in RAM and used the same write API.
+
+| Path | Preparation | AProDB write | End-to-end |
+| --- | ---: | ---: | ---: |
+| CPU generation + `put_batch` | 7.1 ms | 112.5 ms | 178.8 ms |
+| GPU generation + VRAM→RAM + `put_batch` | 53.8 ms | 120.6 ms | 233.5 ms |
+
+At this batch size the GPU path was approximately 31% slower end-to-end. The
+GPU kernel itself is parallel, but transfer and staging dominate. This does not
+disprove a GPU advantage for much larger transformations or compression; it
+does show that GPU-only preparation is not currently a faster write path. The
+experiment changed no product source and its temporary files were removed.
+
 ## Test matrix
 
 | Area | Workload or invariant | Result | Evidence |
