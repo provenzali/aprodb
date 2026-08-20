@@ -17,7 +17,7 @@ AProDB remains a public beta. The measurements below are reproducible validation
 | Compute | CPU exact vector search and ranking equivalence | PASS | compute tests |
 | GPU compute | wgpu CPU/GPU equivalence and crossover | PASS on Tesla T4 | Vast report |
 | Comparative DB | AProDB, SQLite, PostgreSQL, MariaDB, Redis | PASS | `comparative/VAST_2026_08_20.md` |
-| MySQL | standalone MySQL server | NOT RUN | server not provisioned |
+| MySQL | standalone MySQL server | NOT RUN | two disposable Vast provisioning attempts were unavailable; no local server was installed |
 | Live Supabase | sanitized production-shaped import | NOT RUN | endpoint unavailable; no data guessed |
 | Stress: 100k | random, 1 KiB values | PASS | 108.5 MB physical |
 | Stress: 500k | random, 1 KiB values | PASS | 542.5 MB physical |
@@ -48,3 +48,5 @@ The `--all-targets --include-ignored` Windows command also exposed a toolchain-o
 ## Next benchmark tranche
 
 Provision a disposable Linux host and add standalone MySQL, YCSB-like read/update/scan mixes, 16/64/256 concurrent clients, crash injection during durable commits, and a dataset exceeding RAM. Keep each backend isolated, record p50/p95/p99, CPU/RAM/I/O/space, and destroy the host after artifact retrieval.
+
+The final MySQL attempt on 2026-08-20 was terminated while the selected Vast offer remained in `loading`; no chargeable instance was left running. This is an infrastructure gap, not a performance result.
