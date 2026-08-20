@@ -20,6 +20,26 @@ search without becoming a storage dependency. Read the [abstract](ABSTRACT.md),
 the [technical specification](paper.md), and the [manual for features that are
 actually available](manual.md).
 
+## Positioning
+
+AProDB is the layer between a storage engine such as Fjall or RocksDB and the
+application: durable canonical records, an atomic change stream, workflows,
+and rebuildable projections in one embedded Rust system. It is **not** a
+general-purpose KV engine and it is **not** a replacement for SQLite.
+
+The closest comparisons are deliberately different:
+
+| If you need… | Prefer… | AProDB’s distinction |
+| --- | --- | --- |
+| A low-level embedded KV engine | Fjall or RocksDB | AProDB adds canonical versions, change retention, workflows, and surfaces above the engine. |
+| SQL, joins, and ordered relational scans | SQLite | AProDB has no general SQL layer; it targets canonical object state and derived views. |
+| A networked in-memory cache or stream | Redis/Redis Streams | AProDB offers an embedded, durable, compressed record/change path; Redis remains the faster volatile write path. |
+
+It is reasonable to describe the intended combination as “Kafka + Redis + a
+compressed KV layer in a library”, but only as a conceptual comparison:
+AProDB is currently single-node, beta software and is not a distributed broker
+or a drop-in replacement for any of those products.
+
 ```mermaid
 flowchart LR
     App[Applications] --> Client[Rust client / protocol]
