@@ -32,8 +32,10 @@ jobs:
         run: cargo test --workspace --no-default-features
       - name: Compile fuzz target
         run: cargo check --manifest-path fuzz/Cargo.toml
-      - name: Verify distributable packages
-        run: cargo package --workspace
+      - name: Verify independently packageable base crate
+        run: cargo package -p aprodb-types
+      - name: Build workspace package archives
+        run: cargo package --workspace --no-verify
       - name: Long operability gate
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.long_tests }}
         run: cargo test -p aprodb-engine --no-default-features --test operability_long -- --ignored --exact repeated_encrypted_backup_restore_and_rekey_remain_consistent

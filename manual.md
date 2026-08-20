@@ -1,92 +1,98 @@
-# Manuale software di AProDB
+# AProDB software manual
 
-## 1. Panoramica
+## 1. Overview
 
-AProDB è un database embedded key-value scritto in Rust. Conserva il working set in memoria, registra le modifiche su disco e offre ricerca vettoriale parallela. È pensato come base sperimentale ad alte prestazioni con API tipizzata, non ancora come servizio distribuito production-ready.
+AProDB is an embedded key-value database written in Rust.
+It keeps the working set in memory, logs changes to disk, and offers parallel vector search.
+It is designed as a high-performance experimental foundation with a typed API—not yet as a production-ready distributed service.
 
-Caratteristiche principali:
+Main features include:
 
-- chiavi UTF-8 e valori tipizzati;
-- accesso concorrente mediante sharding;
-- `put`/`get`/`delete`, batch lookup e prefix scan;
-- write-ahead log con CRC32 e recupero della coda troncata;
-- snapshot consistenti;
-- compressione adattiva Zstandard in RAM, WAL e snapshot;
-- dot product e cosine similarity su vettori `f32`;
-- CPU parallela con Rayon;
-- compute shader GPU tramite `wgpu`, con fallback CPU in modalità automatica;
-- libreria Rust e interfaccia da riga di comando.
+- UTF-8 keys and typed values;
+- concurrent access through sharding;
+- `put`/`get`/`delete`, batch lookup, and prefix scan;
+- write-ahead log with CRC32 and truncated tail recovery;
+- consistent snapshots;
+- adaptive Zstandard compression in RAM, WAL, and snapshot;
+- dot product and cosine similarity on `f32` vectors;
+- CPU parallelism via Rayon;
+- GPU compute shader via `wgpu`, with automatic CPU fallback;
+- Rust library and command-line interface.
 
-## 2. Stato e limiti della versione 0.1
+## 2. Status and limitations of version 0.1
 
-Questa versione è un MVP single-process e single-node. Non implementa SQL, transazioni multi-chiave, replica, autenticazione, protocollo di rete o distributed consensus. Il dataset attivo deve entrare in RAM. Il WAL non viene ancora compattato automaticamente e può crescere; lo snapshot riduce il tempo di avvio e ripulisce i tombstone in memoria, ma conserva il WAL come storia completa di recupero.
+This version is a single-process, single-node MVP.
+It does not implement SQL, multi-key transactions, replication, authentication, network protocol, or distributed consensus.
+The active dataset must fit in RAM.
+The WAL is not yet automatically compacted and can grow; snapshots reduce startup time and clean tombstones in memory, but retain the WAL as a complete recovery history.
 
-## 3. Requisiti
+## 3. Requirements
 
-- Rust stable con Cargo;
-- un compilatore C compatibile, usato dalla libreria di riferimento Zstandard;
-- una piattaforma supportata da `wgpu` per la feature GPU;
-- driver grafici aggiornati per usare l'accelerazione;
-- nessuna GPU obbligatoria: `--no-default-features` produce un binario CPU-only.
+- Rust stable with Cargo;
+- a C-compatible compiler, used by the reference Zstandard library;
+- a platform supported by `wgpu` for the GPU feature;
+- updated graphics drivers to enable acceleration;
+- no mandatory GPU: `--no-default-features` produces a CPU-only binary.
 
-Su questa workstation Windows il progetto usa il target `x86_64-pc-windows-gnu`; Rustup e WinLibs UCRT sono già installati. Una nuova shell eredita automaticamente entrambi dal `PATH` utente.
+On this Windows workstation, the project uses the target `x86_64-pc-windows-gnu`; Rustup and WinLibs UCRT are already installed. A new shell automatically inherits both from the user's `PATH`.
 
-## 4. Compilazione
+## 4. Compilation
 
-Build completa:
+Complete build:
 
 ```powershell
 cargo build --release
 ```
 
-Build solo CPU:
+CPU-only build:
 
 ```powershell
 cargo build --release --no-default-features
 ```
 
-Test:
+Tests:
 
 ```powershell
 cargo test --all-features
 ```
 
-Controlli statici consigliati:
+Recommended static checks:
 
 ```powershell
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-## 5. Modello dati
+## 5. Data model
 
-Ogni elemento è identificato da una chiave UTF-8 non vuota. `Value` supporta:
+Each element is identified by a non-empty UTF-8 key.
+`Value` supports:
 
-| Variante | Rust | Uso tipico |
+| Variant | Rust type | Typical use |
 |---|---|---|
-| `Bytes` | `Vec<u8>` | payload binari |
-| `Text` | `String` | testo UTF-8 |
-| `Integer` | `i64` | contatori e identificatori |
-| `Float` | `f64` | valori numerici scalari |
-| `Vector` | `Vec<f32>` | embedding e feature numeriche |
+| `Bytes` | `Vec<u8>` | binary payloads |
+| `Text` | `String` | UTF-8 text |
+| `Integer` | `i64` | counters and identifiers |
+| `Float` | `f64` | scalar numeric values |
+| `Vector` | `Vec<f32>` | embeddings and numeric features |
 
-Float e componenti vettoriali devono essere finiti; `NaN` e infinito vengono rifiutati.
+Float and vector components must be finite; `NaN` and infinite values are rejected.
 
-## 6. Uso come libreria Rust
+## 6. Use as a Rust library
 
-Esempio minimo:
+Minimal example:
 
 ```rust
 use aprodb::{Config, Database, Value};
 
 let db = Database::open(Config::new("./data"))?;
-db.put("utente:42", Value::Text("Ada".into()))?;
-assert_eq!(db.get("utente:42")?, Some(Value::Text("Ada".into())));
+db.put("user:42", Value::Text("Ada".into()))?;
+assert_eq!(db.get("user:42")?, Some(Value::Text("Ada".into())));
 db.sync()?;
 # Ok::<(), aprodb::AproError>(())
 ```
 
-Scrittura e lettura batch:
+Batch writes and reads:
 
 ```rust
 let writes = vec![
@@ -97,7 +103,7 @@ db.put_batch(writes)?;
 let values = db.get_batch(&["a".into(), "b".into()])?;
 ```
 
-Ricerca vettoriale:
+Vector search:
 
 ```rust
 use aprodb::{ComputeBackend, Metric};
@@ -112,125 +118,131 @@ let result = db.vector_search(
 )?;
 ```
 
-`SearchResult.backend` dice se l'operazione ha usato CPU o GPU; `accelerator` contiene il nome dell'adapter quando disponibile.
+`SearchResult.backend` indicates whether the operation used the CPU or GPU; `accelerator` contains the adapter name when available.
 
-## 7. Configurazione
+## 7. Configuration
 
-`Config::new(path)` sceglie default sicuri. I campi modificabili sono:
+`Config::new(path)` selects safe defaults. The modifiable fields are:
 
-- `path`: directory contenente WAL e snapshot;
-- `shards`: potenza di due; più shard riducono la contesa ma aumentano l'overhead;
-- `durability`: `SyncData` sincronizza ogni singola operazione o batch, `Relaxed` privilegia throughput e latenza;
-- `gpu_min_work`: componenti minime (`vettori × dimensione`) perché `Auto` tenti la GPU; default 16.777.216.
-- `compression_level`: livello Zstandard, default `1` per privilegiare la velocità;
-- `compression_min_size`: soglia minima per tentare Zstd, default 32 byte;
-- `compression_channels`: contesti indipendenti di compressione/decompressione, potenza di due, default limitato a 32 e massimo 64.
+- `path`: directory containing WAL and snapshot;
+- `shards`: power of two; more shards reduce contention but increase overhead;
+- `durability`: `SyncData` synchronizes every single operation or batch, `Relaxed` favors
+  throughput and latency;
+- `gpu_min_work`: minimum component count (`vectors × dimensions`) before `Auto` tries the GPU;
+  default 16,777,216.
+- `compression_level`: Zstandard level, default `1` to prioritize speed;
+- `compression_min_size`: minimum threshold for trying Zstd, default 32 bytes;
+- `compression_channels`: independent compression/decompression settings, power of two, default
+  limited to 32 and maximum 64.
 
-`SyncData` è il default. Per ingest massivo, usare `put_batch` è molto più efficiente di molti `put`, perché effettua una sola sincronizzazione del WAL per batch.
+`SyncData` is the default. For bulk ingestion, using `put_batch` is much more efficient than many `put` calls, because it performs a single WAL synchronization per batch.
 
-## 8. Compressione integrata
+## 8. Integrated compression
 
-Ogni valore attraversa `CompressionChannel` in ingresso e in uscita. Il formato interno contiene versione, codec, tipo logico e lunghezza originale. Sopra `compression_min_size`, AProDB prova Zstandard; conserva però il risultato compresso solo se risparmia almeno otto byte. I payload piccoli, incomprimibili o già compressi restano raw e non subiscono espansione artificiale.
+Each value passes through a `CompressionChannel` on input and output. The internal format contains version, codec, logical type, and original length. Above `compression_min_size`, AProDB tries Zstandard; however, it only keeps the compressed result if it saves at least eight bytes. Small, incompressible, or already compressed payloads remain raw and do not undergo artificial expansion.
 
-Il livello di default è Zstd 1, scelto per limitare la latenza. Livelli superiori possono ridurre maggiormente lo spazio, ma consumano più CPU. Non esiste un compressore migliore per ogni distribuzione di dati: l'adattività è parte del progetto, non un'eccezione.
+The default level is Zstd 1, chosen to limit latency. Higher levels can further reduce space but consume more CPU. There is no ideal compressor for every data distribution: adaptivity is part of the project, not an exception.
 
-I canali sono context pool indipendenti, selezionati mediante hash della chiave. Un solo contesto serializzerebbe tutte le operazioni; un contesto per ciascuno dei molti shard userebbe troppa memoria. Il pool configurabile offre parallelismo controllato. `put_batch` comprime più valori in parallelo prima dell'append seriale al WAL.
+Channels are independent context pools, selected by key hash. A single context would serialize all operations; one context for each of many shards would use too much memory. The configurable pool offers controlled parallelism. `put_batch` compresses multiple values in parallel before serial append to the WAL.
 
-I byte compressi sono conservati direttamente nel working set in RAM e riutilizzati da WAL e snapshot. In lettura, errori Zstd, lunghezze diverse da quella dichiarata o tipi incoerenti causano un errore di corruzione.
+The compressed bytes are stored directly in the working set in RAM and reused by the WAL and snapshots. On reading, Zstd errors, lengths differing from the declared value, or inconsistent types cause a corruption error.
 
-`stats` espone:
+`stats` exposes:
 
-- `compressed_values` e `raw_values`;
-- `logical_value_bytes` e `stored_value_bytes`;
-- `compression_ratio`, dove valori sotto 1 indicano risparmio;
+- `compressed_values` and `raw_values`;
+- `logical_value_bytes` and `stored_value_bytes`;
+- `compression_ratio`, where values below 1 indicate savings;
 - `compression_channels`.
 
-## 9. Persistenza e recupero
+## 9. Persistence and recovery
 
-La directory dati contiene:
+The data directory contains:
 
-- `aprodb.wal`: log append-only delle mutazioni;
-- `aprodb.snapshot`: immagine consistente delle chiavi vive;
-- `aprodb.snapshot.tmp`: possibile file temporaneo durante la creazione; non viene letto come database valido.
+- `aprodb.wal`: append-only log of mutations;
+- `aprodb.snapshot`: a consistent image of live keys;
+- `aprodb.snapshot.tmp`: possible temporary file during creation; not read as a valid database.
 
-Procedura di scrittura:
+Write procedure:
 
-1. validazione di chiave e valore;
-2. assegnazione del numero di sequenza;
-3. append del record al WAL con CRC32;
-4. eventuale `sync_data` secondo la durabilità;
-5. applicazione allo shard in memoria.
+1. validation of key and value;
+2. assignment of the sequence number;
+3. appending the record to the WAL with CRC32;
+4. optional `sync_data` step depending on durability;
+5. application to the in-memory shard.
 
-All'apertura, AProDB carica snapshot e WAL. Un frame WAL finale incompleto, tipico di uno spegnimento durante una scrittura, viene ignorato e il file viene troncato all'ultimo frame integro. Un checksum errato in un frame completo viene invece segnalato come corruzione.
+At startup, AProDB loads the snapshot and WAL. An incomplete final WAL frame, typically caused by a shutdown during a write, is ignored, and the file is truncated to the last intact frame. An incorrect checksum in a complete frame is instead reported as corruption.
 
-Lo snapshot blocca temporaneamente nuove scritture, ma non le letture. Il WAL resta la fonte completa per il recupero.
+Snapshot creation temporarily blocks new writes, but not reads. The WAL remains the authoritative source for recovery.
 
-## 10. Parallelismo
+## 10. Parallelism
 
-- Lo sharding limita i lock alle chiavi dello stesso shard.
-- `get_batch`, `put_batch`, prefix scan, raccolta dei vettori, scoring CPU e ordinamento usano Rayon.
-- compressione e decompressione usano un pool sharded di contesti Zstd senza lock globale.
-- La sequenza per record garantisce *last assigned write wins* anche quando thread diversi terminano fuori ordine.
-- Lo snapshot usa un write gate globale solo per ottenere un confine consistente.
+- Sharding limits locks to keys within the same shard.
+- `get_batch`, `put_batch`, prefix scan, vector collection, CPU scoring, and sorting use Rayon.
+- Compression and decompression use a sharded pool of Zstd contexts without a global lock.
+- The record sequence guarantees *last assigned write wins* even when threads finish out of order.
+- The snapshot uses a global write gate only to obtain a consistent boundary.
 
-## 11. Accelerazione GPU
+## 11. GPU acceleration
 
-La GPU è inizializzata in modo lazy al primo uso. Un compute shader WGSL assegna un thread logico a ciascun vettore e calcola:
+The GPU is lazily initialized on first use. A WGSL compute shader assigns a logical thread to each vector and computes:
 
-- `Dot`: somma dei prodotti tra componenti;
-- `Cosine`: dot product diviso per il prodotto delle norme.
+- `Dot`: sum of products of components;
+- `Cosine`: dot product divided by the product of the norms.
 
-Politiche:
+Policies:
 
-- `Cpu`: usa sempre Rayon;
-- `Gpu`: richiede la GPU e restituisce errore se non disponibile;
-- `Auto`: prova la GPU oltre `gpu_min_work`; se inizializzazione o dispatch falliscono, torna alla CPU.
+- `Cpu`: always uses Rayon;
+- `Gpu`: requires a GPU and returns an error if not available;
+- `Auto`: tries the GPU above `gpu_min_work`; if initialization or dispatch fails, falls back to CPU.
 
-La GPU conviene solo quando il lavoro numerico ripaga upload, dispatch e readback. Il lookup key-value resta intenzionalmente sulla CPU/RAM.
+The GPU is only beneficial when the computational workload justifies the overhead of upload, dispatch, and readback. Key-value lookups intentionally remain on the CPU/RAM.
 
 ## 12. CLI
 
-Sintassi generale:
+General syntax:
 
 ```text
-aprodb [--path DIRECTORY] [--relaxed] <COMANDO>
+aprodb [--path DIRECTORY] [--relaxed] <COMMAND>
 ```
 
-Opzioni globali:
+Global options:
 
-- `--path`: directory dati; default `.aprodb`;
-- `--relaxed`: evita `sync_data` a ogni operazione e privilegia il throughput accettando un rischio maggiore in caso di crash.
+- `--path`: data directory; default `.aprodb`;
+- `--relaxed`: avoids `sync_data` at every operation and favors throughput by accepting a higher risk in case of crash.
 
-La CLI scrive risultati JSON su standard output e diagnostica gli errori con exit code diverso da zero.
+The CLI writes JSON results to standard output and reports errors with a non-zero exit code.
 
 ### `put`
 
 ```powershell
-aprodb put saluto "ciao mondo"
-aprodb put visite 42 --kind integer
-aprodb put temperatura 21.5 --kind float
+aprodb put greeting "hello world"
+aprodb put visits 42 --kind integer
+aprodb put temperature 21.5 --kind float
 aprodb put embedding "0.1,0.2,0.3" --kind vector
-aprodb put firma "00ff10" --kind bytes
+aprodb put signature "00ff10" --kind bytes
 ```
 
-Formati `--kind`: `text` (default), `bytes` esadecimali, `integer`, `float`, `vector` con componenti separate da virgola. Il comando restituisce chiave e sequenza assegnata.
+Formats for `--kind`: `text` (default), `bytes` (hexadecimal), `integer`, `float`, `vector` with comma-separated components.
+The command returns the assigned key and sequence.
 
-### `get` e `delete`
+### `get` and `delete`
 
 ```powershell
-aprodb get saluto
-aprodb delete saluto
+aprodb get greeting
+aprodb delete greeting
 ```
 
-`get` restituisce il valore tipizzato o `null`. `delete` restituisce `deleted: true` soltanto se la chiave era viva.
+`get` returns the typed value or `null`.
+`delete` returns `deleted: true` only if the key was active.
 
 ### `scan`
 
 ```powershell
-aprodb scan "utente:" --limit 100
+aprodb scan "user:" --limit 100
 ```
 
-Esegue una prefix scan parallela, ordina le chiavi e limita il risultato. Una prefix vuota scansiona tutte le chiavi vive.
+Performs a parallel prefix scan, sorts the keys, and limits the result.
+An empty prefix scans all active keys.
 
 ### `vector-search`
 
@@ -238,13 +250,13 @@ Esegue una prefix scan parallela, ordina le chiavi e limita il risultato. Una pr
 aprodb vector-search "0.9,0.1,0" --limit 10 --metric cosine --backend auto
 ```
 
-- `--metric`: `cosine` (default) o `dot`;
-- `--backend`: `auto` (default), `cpu` o `gpu`;
-- vengono considerate solo le chiavi con `Value::Vector` della stessa dimensione della query.
+- `--metric`: `cosine` (default) or `dot`;
+- `--backend`: `auto` (default), `cpu`, or `gpu`;
+- only the keys with `Value::Vector` of the same dimension as the query are considered.
 
-Il risultato riporta hit, score, numero di candidati, backend effettivo e nome dell'acceleratore.
+The result reports hit, score, number of candidates, actual backend, and accelerator name.
 
-### `stats`, `snapshot` e `gpu-info`
+### `stats`, `snapshot` and `gpu-info`
 
 ```powershell
 aprodb stats
@@ -252,7 +264,7 @@ aprodb snapshot
 aprodb gpu-info
 ```
 
-`stats` espone chiavi, tombstone, sequenza, byte WAL, thread, compressione e disponibilità della feature GPU. `snapshot` salva le chiavi vive e ripulisce i tombstone in RAM. `gpu-info` inizializza il backend e restituisce l'adapter selezionato oppure un errore esplicito.
+`stats` displays keys, tombstones, sequence, WAL bytes, threads, compression, and availability of the GPU feature. `snapshot` saves the live keys and cleans up the tombstones in RAM. `gpu-info` initializes the backend and returns the selected adapter or an explicit error.
 
 ### `demo`
 
@@ -260,7 +272,7 @@ aprodb gpu-info
 aprodb --relaxed demo --items 10000 --dimension 128 --backend auto
 ```
 
-Genera vettori deterministici con prefix `demo:vector:`, esegue un ingest batch e una ricerca top-5, quindi mostra tempi e throughput. Scrive nella directory scelta: usare un path dedicato se non si vogliono mescolare i dati demo con quelli applicativi.
+Generates deterministic vectors with the prefix `demo:vector:`, performs batch ingest and a top-5 search, then displays timings and throughput. Writes to the chosen directory: use a dedicated path if you do not want to mix demo data with application data.
 
 ### Help
 
@@ -269,63 +281,67 @@ aprodb --help
 aprodb vector-search --help
 ```
 
-## 13. Manutenzione e sicurezza operativa
+## 13. Maintenance and operational security
 
-- Eseguire backup della directory dati solo dopo `sync()` o a processo fermo.
-- Non modificare WAL o snapshot a mano.
-- Non condividere la stessa directory tra più processi: il locking cross-process non è ancora implementato.
-- Monitorare `wal_bytes` e pianificare una futura compattazione del WAL.
-- Usare `Relaxed` solo accettando la possibile perdita delle ultime scritture in caso di crash o interruzione elettrica.
-- Conservare copie esterne: WAL e snapshot non sostituiscono una strategia di backup.
+- Perform backups of the data directory only after `sync()` or when the process is stopped.
+- Do not manually modify WAL or snapshot files.
+- Do not share the same directory between multiple processes: cross-process locking is not yet implemented.
+- Monitor `wal_bytes` and plan for future WAL compaction.
+- Use `Relaxed` only if you accept the possible loss of the most recent writes in case of crash or power failure.
+- Keep external copies: WAL and snapshots do not replace a proper backup strategy.
 
-## 14. Struttura del codice
+## 14. Code structure
 
-- `src/engine.rs`: API pubblica, sharding, concorrenza e orchestrazione;
-- `src/value.rs`: tipi e formato binario dei valori;
-- `src/compression.rs`: `StoredValue`, scelta raw/Zstd e pool di contesti;
-- `src/record.rs`: frame persistenti e checksum;
-- `src/wal.rs`: append e recovery;
-- `src/snapshot.rs`: lettura e scrittura snapshot;
-- `src/compute/cpu.rs`: scoring parallelo CPU;
-- `src/compute/gpu.rs`: inizializzazione `wgpu`, shader e readback;
+- `src/engine.rs`: public API, sharding, concurrency, and orchestration;
+- `src/value.rs`: value types and binary format;
+- `src/compression.rs`: `StoredValue`, raw/Zstd selection, and context pool;
+- `src/record.rs`: persistent frames and checksum;
+- `src/wal.rs`: append and recovery;
+- `src/snapshot.rs`: snapshot reading and writing;
+- `src/compute/cpu.rs`: parallel CPU scoring;
+- `src/compute/gpu.rs`: `wgpu` initialization, shader, and readback;
 - `src/main.rs`: CLI;
-- `tests/`: comportamento end-to-end e persistenza.
+- `tests/`: end-to-end behavior and persistence.
 
-## 15. Risoluzione problemi
+## 15. Troubleshooting
 
-**GPU non disponibile**: usare `Auto` o `Cpu`; verificare driver e supporto del backend `wgpu`.
+**GPU not available**: use `Auto` or `Cpu`; check driver and `wgpu` backend support.
 
-**Errore di checksum**: lavorare su una copia della directory, conservare i file originali e ripristinare da backup; non cancellare automaticamente il frame segnalato.
+**Checksum error**: work on a copy of the directory, keep the original files, and restore from backup; do not automatically delete the reported frame.
 
-**WAL molto grande**: lo snapshot migliora il caricamento dello stato, ma la versione 0.1 non riscrive ancora il WAL. Pianificare spazio adeguato.
+**Very large WAL**: snapshots improve state loading, but version 0.1 does not yet rewrite the WAL. Plan sufficient disk space.
 
-**Prestazioni ingest scarse**: preferire `put_batch`; valutare `Relaxed` soltanto se il relativo rischio di durabilità è accettabile.
+**Poor ingest performance**: prefer `put_batch`; consider `Relaxed` only if its durability risk is acceptable.
 
-**Prima query GPU lenta**: l'inizializzazione lazy di adapter e pipeline è inclusa nella prima richiesta. Riutilizzare la stessa istanza `Database`; le richieste successive usano la pipeline già creata. In modalità `Auto`, regolare `gpu_min_work` con benchmark sul proprio hardware.
+**First GPU query slow**: lazy initialization of the adapter and pipeline occurs during the first request. Reuse the same `Database` instance; subsequent requests use the pipeline already created. In `Auto` mode, tune `gpu_min_work` based on benchmarks on your hardware.
 
-## 16. Benchmark riproducibile
+## 16. Reproducible benchmark
 
 ```powershell
 cargo bench --bench throughput
 ```
 
-Il benchmark crea una directory temporanea, inserisce 50.000 vettori da 64 componenti e misura CPU, prima richiesta GPU e GPU calda, verificando anche che il ranking coincida. Sulla workstation Intel Iris Xe usata durante lo sviluppo: circa 61.120 insert/s in batch relaxed, CPU 71,77 ms, GPU fredda 534,40 ms e GPU calda 98,98 ms. Sono dati locali, non SLA; spiegano il default prudente di `gpu_min_work`.
+The benchmark creates a temporary directory, inserts 50,000 vectors with 64 components, and measures
+the CPU path, the first GPU request, and the warm GPU path while also verifying that the rankings match.
+On the Intel Iris Xe workstation used during development: about 61,120 insert/s in batch relaxed,
+CPU 71.77 ms, cold GPU 534.40 ms and hot GPU 98.98 ms.
+These are local measurements, not SLA values; they justify the conservative default value for `gpu_min_work`.
 
-## 17. Benchmark contro database esterni
+## 17. Benchmark against external databases
 
-Il crate `benchmarks/comparative` confronta AProDB con SQLite, PostgreSQL, MySQL e MariaDB usando chiavi e payload identici. È indipendente dal crate principale: i driver SQL non vengono inclusi nelle applicazioni che dipendono da AProDB.
+The `benchmarks/comparative` crate compares AProDB with SQLite, PostgreSQL, MySQL, and MariaDB using identical keys and payloads. It is independent of the main crate: SQL drivers are not included in applications that depend on AProDB.
 
-### Protocollo
+### Protocol
 
-- due profili da 50.000 record: ripetitivo/comprimibile e pseudo-casuale;
-- payload binario da 512 byte e batch da 500;
-- un commit durevole per batch;
-- 50.000 lookup puntuali a dataset caldo;
-- 20 prefix/range scan ordinate, limite 1.000;
-- tre ripetizioni, confronto sulla mediana;
-- verifica automatica di lunghezze e numero di righe.
+- two 50,000-record profiles: repetitive/compressible and pseudorandom;
+- 512-byte binary payload and batch size of 500;
+- a durable commit per batch;
+- 50,000 point lookups against the hot dataset;
+- 20 ordered prefix/range scans, limited to 1,000 rows;
+- three repetitions, compared by median;
+- automatic verification of lengths and row counts.
 
-Esecuzione completa, dopo avere creato `aprodb_bench` sui server:
+Full execution, after creating `aprodb_bench` on the servers:
 
 ```powershell
 cargo run --release --manifest-path benchmarks/comparative/Cargo.toml -- `
@@ -335,115 +351,102 @@ cargo run --release --manifest-path benchmarks/comparative/Cargo.toml -- `
   --batch-size 500 --runs 3 --scan-repeats 20 --scan-limit 1000
 ```
 
-Per una prova embedded senza server:
+For an embedded test without a server:
 
 ```powershell
 cargo run --release --manifest-path benchmarks/comparative/Cargo.toml -- `
   --backends aprodb,sqlite --profiles compressible,random
 ```
 
-Il runner accetta URL personalizzati con `--postgres-url`, `--mysql-url` e `--mariadb-url`. Scrive un rapporto JSON incrementale sotto il `--workdir`; un errore di backend non cancella le prove già concluse.
+The runner accepts custom URLs with `--postgres-url`, `--mysql-url`, and `--mariadb-url`. It writes an incremental JSON report under the `--workdir`; a backend error does not erase previously completed tests.
 
-### Risultati locali del 19 agosto 2026
+### Local results as of 19 August 2026
 
-Su Intel Core i5-1340P, 16 thread e SSD NVMe, tutte le 30 prove hanno superato i controlli. Mediane principali:
+On an Intel Core i5-1340P with 16 threads and NVMe SSD, all 30 tests passed verification. Main medians:
 
-| Profilo | Motore | Ingest ops/s | Lookup ops/s | Lookup p99 µs | Scan ops/s | Spazio MiB |
+|Profile|Engine|Ingest ops/s|Lookup ops/s|Lookup p99 μs|Scan ops/s|MiB space|
 |---|---|---:|---:|---:|---:|---:|
-| comprimibile | AProDB | 43.215 | 161.677 | 10,8 | 400,4 | 6,76 |
-| comprimibile | SQLite | 6.157 | 13.107 | 223,6 | 2.455,9 | 29,61 |
-| comprimibile | PostgreSQL | 32.157 | 974 | 1.630,2 | 310,2 | 31,10 |
-| comprimibile | MySQL | 15.915 | 1.870 | 969,2 | 608,9 | 44,00 |
-| comprimibile | MariaDB | 55.200 | 2.290 | 838,1 | 634,6 | 44,00 |
-| casuale | AProDB | 28.091 | 395.376 | 3,1 | 387,1 | 27,32 |
-| casuale | SQLite | 6.032 | 13.559 | 230,0 | 2.565,3 | 29,61 |
-| casuale | PostgreSQL | 32.918 | 966 | 1.610,8 | 277,5 | 31,10 |
-| casuale | MySQL | 13.431 | 1.791 | 984,1 | 551,8 | 44,00 |
-| casuale | MariaDB | 36.106 | 2.146 | 896,5 | 677,3 | 44,00 |
+|compressible|AProDB|43,215|161,677|10.8|400.4|6.76|
+|compressible|SQLite|6,157|13,107|223.6|2,455.9|29.61|
+|compressible|PostgreSQL|32,157|974|1,630.2|310.2|31.10|
+|compressible|MySQL|15,915|1,870|969.2|608.9|44.00|
+|compressible|MariaDB|55,200|2,290|838.1|634.6|44.00|
+|random|AProDB|28,091|395,376|3.1|387.1|27.32|
+|random|SQLite|6,032|13,559|230.0|2,565.3|29.61|
+|random|PostgreSQL|32,918|966|1,610.8|277.5|31.10|
+|random|MySQL|13,431|1,791|984.1|551.8|44.00|
+|random|MariaDB|36,106|2,146|896.5|677.3|44.00|
 
-AProDB è nettamente primo nei lookup puntuali e nello spazio sui dati comprimibili. Non è primo nell'ingest durevole: MariaDB vince entrambi i profili e PostgreSQL supera AProDB sui dati casuali. SQLite domina le scansioni perché usa la primary key ordinata, mentre `scan_prefix` di AProDB attraversa oggi tutti gli shard. Questo individua nell'indice ordinato una priorità concreta.
+On this workload, AProDB leads in point lookups and space usage on compressible data. It does not lead in durable ingestion: MariaDB wins in both profiles, and PostgreSQL surpasses AProDB on random data. SQLite dominates scans because it uses the ordered primary key, while AProDB's `scan_prefix` currently scans all shards. This highlights ordered indexes as a concrete priority.
 
-Il confronto embedded/client-server va interpretato correttamente. AProDB e SQLite non attraversano la rete; PostgreSQL, MySQL e MariaDB usano una connessione TCP locale e parsing SQL. AProDB tiene il dataset attivo in RAM. Lo spazio SQL non include redo/WAL globali. Il test non misura capacità massima, client concorrenti, join, replica o fault recovery e non è uno SLA. Metodologia e tabelle complete sono in `benchmarks/comparative/RESULTS.md`.
+The embedded vs. client-server comparison must be interpreted correctly. AProDB and SQLite do not use network communication; PostgreSQL, MySQL, and MariaDB use a local TCP connection and SQL parsing. AProDB keeps the active dataset in RAM. The SQL space does not include global redo/WAL. The test does not measure maximum capacity, concurrent clients, joins, replication, or fault recovery, and is not an SLA. Methodology and full tables are in `benchmarks/comparative/RESULTS.md`.
 
-## 18. Capacità e scelta del motore
+## 18. Engine capacity and choice
 
-| Caratteristica | AProDB 0.1 | SQLite | PostgreSQL/MySQL/MariaDB |
+| Characteristic | AProDB 0.1 | SQLite | PostgreSQL/MySQL/MariaDB |
 |---|---|---|---|
-| Modello | KV tipizzato e vettori | SQL relazionale embedded | SQL relazionale client/server |
-| Lookup KV caldo | Molto rapido in-process | Rapido in-process | Include protocollo e SQL |
-| Compressione per valore | Zstd adattiva integrata | Non equivalente nel core | Dipende dal motore/configurazione |
-| Prefix/range index | Non ancora; scansione shard | B-tree | B-tree e indici avanzati |
-| Transazioni ACID generali | Non ancora | Sì | Sì |
-| Accesso multi-processo/rete | Non ancora | Multi-processo su file, niente server core | Sì |
-| Query, join e vincoli | No | Sì | Sì |
-| Ricerca vettoriale GPU | Integrata | No nel core | Tramite estensioni/prodotti specifici |
-| Replica e alta disponibilità | No | No nel core | Sì, con capacità diverse |
-| Maturità operativa | Prototipo/MVP | Molto alta | Molto alta |
+| Model | Typed KV and vectors | Embedded relational SQL | Client/server relational SQL |
+| Hot KV lookup | Very fast in-process | Fast in-process | Includes protocol and SQL |
+| Per-value compression | Integrated adaptive Zstd | Not in core | Depends on engine/configuration |
+| Prefix/range index | Not yet; shard scan | B-tree | B-tree and advanced indexes |
+| General ACID transactions | Not yet | Yes | Yes |
+| Multi-process/network access | Not yet | Multi-process on file, no core server | Yes |
+| Query, join, and constraints | No | Yes | Yes |
+| GPU vector search | Integrated | Not in core | Via specific extensions/products |
+| Replication and high availability | No | Not in core | Yes, with varying capabilities |
+| Operational maturity | Prototype/MVP | Very high | Very high |
 
-Usare AProDB 0.1 quando il caso è embedded, single-process, key-value o vettoriale e si accettano i limiti espliciti dell'MVP. Usare SQLite quando servono SQL e transazioni locali in un singolo file. Usare PostgreSQL, MySQL o MariaDB quando servono utenti concorrenti, rete, transazioni complete, indici multipli, replica e strumenti operativi maturi.
+Use AProDB 0.1 when the case is embedded, single-process, key-value or vector, and you accept the explicit MVP limitations. Use SQLite when SQL and local transactions on a single file are required. Use PostgreSQL, MySQL, or MariaDB when you need concurrent users, network access, full transactions, multiple indexes, replication, and mature operational tooling.
 
-## 19. Architettura obiettivo
+## 19. Target architecture
 
-La specifica normativa del futuro AProDB radiale è in [paper.md](paper.md). Non descrive capacità già disponibili nella versione 0.1: stabilisce il contratto da implementare e i criteri necessari per dichiarare completate le milestone.
+The normative specification for radial AProDB is in [paper.md](paper.md).
+It defines the target contracts and the criteria required to declare each milestone complete. This manual distinguishes the 0.1 prototype from the 1.x capabilities that are actually implemented.
 
-La direzione approvata comprende:
+The approved direction includes:
 
-- servizio centrale per accesso multiprocesso e modalità embedded esclusiva;
-- CPU come implementazione completa di riferimento e GPU come acceleratore opzionale;
-- contratto di storage con Fjall come primo candidato, redb/RocksDB come fallback e backend nativo soltanto se necessario;
-- catalogo e change log logico AProDB atomici con il record, distinti dal WAL fisico del backend; gli eventi non duplicano il payload completo per default;
-- retention degli eventi scelta per collection fra Delta, VersionRef e SelfContained, senza snapshot MVCC longevi;
-- modalità Durable unica con finestra di group commit configurabile;
-- atomicità entro una partizione, CAS, idempotenza, claim, lease e fencing;
-- cache separate e radial score iniziale basato su freschezza, workflow e pin; altri segnali soltanto dopo misure;
-- superficie di lavoro e superficie di lettura incrementali, ricostruibili e dotate di watermark;
-- compressione adattiva del payload logico con Zstandard e fallback Raw, coordinata per keyspace con la compressione fisica del backend;
-- supporto a dataset maggiori della RAM, storage class e compaction limitata;
-- protocollo binario versionato, quote, backpressure, recovery, backup e osservabilità.
+- central service for multiprocess access and exclusive embedded mode;
+- CPU as the complete reference implementation and GPU as an optional accelerator;
+- storage contract with Fjall as the first candidate, redb/RocksDB as fallback, and native backend only if necessary;
+- atomic AProDB catalog and logical change log with record, distinct from the backend's physical WAL; events do not duplicate the full payload by default;
+- retention of events selectable per collection among Delta, VersionRef, and SelfContained, without long-lived MVCC snapshots;
+- single Durable mode with configurable group commit window;
+- atomicity within a partition, CAS, idempotency, claim, lease, and fencing;
+- separate caches, and initial radial score based on freshness, workflow, and pin; other signals only after measurement;
+- incremental, reconstructible, and watermarked work and read surfaces;
+- adaptive compression of logical payload with Zstandard and Raw fallback, coordinated per keyspace with backend physical compression;
+- support for datasets larger than RAM, storage classes, and limited compaction;
+- versioned binary protocol, quotas, backpressure, recovery, backup, and observability.
 
-La parte GPU rimane nella roadmap originaria: non è stata rinviata. Interfacce compute e layout vengono preparati dalle fondazioni; la correttezza resta disponibile anche su CPU-only.
+The GPU component remains in the original roadmap: it has not been postponed. Compute interfaces and layouts are prepared by the foundations; correctness remains available also on CPU-only.
 
-La [matrice di implementazione](docs/requirements-matrix.md) collega i requisiti normativi ai gate verificabili. Fino all'implementazione e al superamento dei relativi test, valgono i limiti dichiarati nella sezione 2 di questo manuale.
+The [implementation matrix](docs/requirements-matrix.md) connects normative requirements to verifiable gates. Any paper requirement not recorded there as implemented and verified remains a design target, not an available feature.
 
-## 20. Repository e distribuzione del sorgente
+## 20. Repository and source distribution
 
-AProDB è preparato per il repository canonico pubblico
-`https://github.com/provenzali/aprodb`. Il 19 agosto 2026 la directory locale è
-un repository Git sul branch `main`; creazione remota e push devono essere
-registrati nel diario solo dopo la verifica effettiva. Il collegamento GitHub
-integrato appartiene a un account diverso e non è autorizzato per AProDB.
+AProDB is published in the canonical public repository [provenzali/aprodb](https://github.com/provenzali/aprodb). The local `main` branch uses that repository as `origin`; publication events and verification are recorded in the diary.
 
-Il progetto è esplicitamente in **beta test** e non è production-ready. La
-distribuzione identifica Andrea Provenzali come creatore originario e autore
-della specifica tramite nome, account `@provenzali` e ORCID
-`0009-0009-9677-9840`; codice fiscale, data di nascita, nazionalità ed email non
-appartengono ai file pubblici.
+The project is explicitly in **beta testing** and is not production-ready. The distribution identifies Andrea Provenzali as the original creator and author of the specification by name, account `@provenzali`, and ORCID `0009-0009-9677-9840`; tax code, date of birth, nationality, and email are not included in public files.
 
-La prima sessione operativa deve completare la baseline della Milestone 0 prima della pubblicazione:
+The Milestone 0 publication baseline records:
 
-- owner `provenzali`, candidato `aprodb` e visibilità pubblica;
-- audit di segreti, file grandi e artefatti locali;
-- core `AGPL-3.0-only`; client, protocollo e tipi pubblici `Apache-2.0`;
-- branch `main` e commit baseline verificato;
-- test CPU-only locali e successiva CI GitHub CPU-only;
-- nessuna dipendenza da GPU nei runner ospitati;
-- nessun force-push o modifica di repository estranei ad AProDB.
+- owner `provenzali`, repository `aprodb`, and public visibility;
+- an audit of secrets, large files, and local artifacts;
+- Core `AGPL-3.0-only`; client, protocol, and public types `Apache-2.0`;
+- branch `main` and a verified baseline commit;
+- local CPU-only tests followed by GitHub CPU-only CI;
+- no GPU dependency on hosted runners;
+- no force-push or modification of repositories unrelated to AProDB.
 
-Il `.gitignore` esclude build Rust, dati runtime, WAL, snapshot, database locali, configurazioni sensibili e log. Cargo.lock fa parte della distribuzione riproducibile e non deve essere ignorato.
+The `.gitignore` excludes Rust build artifacts, runtime data, WAL, snapshots, local databases, sensitive configurations, and logs. Cargo.lock is part of the reproducible distribution and must not be ignored.
 
-La mappa vincolante dei componenti è in `LICENSING.md`. Le distribuzioni
-conservano `NOTICE`; i contributi usano DCO e assumono la licenza del componente
-modificato. Il client non dipende dall'implementazione compute AGPL: i tipi
-condivisi necessari al wire sono in `aprodb-types`.
+The binding map of components is in `LICENSING.md`. Distributions retain `NOTICE`; contributions use DCO and inherit the license of the modified component. The client does not depend on the AGPL compute implementation: the shared types required for the wire are in `aprodb-types`.
 
-## 21. Motore canonico 1.x sperimentale — Milestone 1
+## 21. Experimental canonical engine 1.x — Milestone 1
 
-Il facade conserva l'API 0.1 alla radice e rende disponibile la nuova verticale
-tramite `aprodb::v1`. Questo percorso è utilizzabile come libreria embedded per
-prove locali; per più processi usare il server della sezione successiva, che
-rimane l'unico proprietario della directory dati.
+The facade retains the 0.1 API at the root and exposes the new vertical via `aprodb::v1`. This path can be used as an embedded library for local experimentation; for multiple processes, use the server described in the next section, which remains the sole owner of the data directory.
 
-Esempio minimo:
+Minimal example:
 
 ```rust
 use aprodb::v1::{Engine, EngineConfig, Payload, PutRequest, RecordIdentity};
@@ -455,143 +458,79 @@ fn main() -> Result<(), aprodb::v1::AproError> {
         "tenant", "namespace", "objects", "partition-a", "key-1"
     )?;
 
+
     let receipt = engine.put(PutRequest::new(
-        id.clone(), Payload::Text("ciao".into())
+        id.clone(), Payload::Text("hello".into())
     ))?;
-    let record = engine.get(&id)?.expect("record presente");
+    let record = engine.get(&id)?.expect("record exists");
     assert_eq!(record.version, receipt.version);
     Ok(())
 }
 ```
 
-### Configurazione e limiti
+### Configuration and limits
 
-`EngineConfig` richiede una directory dati, un numero di shard potenza di due,
-budget positivi e coerenti per chiavi, record, batch, memoria inflight, code e
-storage. La directory viene marcata come formato logico 1.x e bloccata in modo
-esclusivo anche fra processi. Una directory 0.1 contenente `aprodb.wal` o snapshot
-legacy viene rifiutata con `IncompatibleFormat`; non esiste import automatico.
-L'import one-shot esplicito e copy-only è descritto nella sezione 27.
+`EngineConfig` requires a data directory, a shard count that is a power of two, and positive, consistent budgets for keys, records, batches, in-flight memory, code, and storage. The directory is marked as logical format 1.x and locked exclusively, including across processes. A 0.1 directory containing `aprodb.wal` or legacy snapshots is rejected with `IncompatibleFormat`; there is no automatic import. The explicit, copy-only one-shot import is described in section 27.
 
-La configurazione predefinita usa Fjall 3.1.8 con payload canonici senza
-compressione fisica aggiuntiva e LZ4 per metadata, change log e superfici;
-cache e memtable sono limitate e la manutenzione ha timeout. La compressione
-logica canonica è descritta nella sezione 25. `group_commit_window = 0` impone un
-`SyncAll` per ogni richiesta Durable. Con finestra positiva, le richieste vengono
-accodate su un canale limitato e ricevono il receipt soltanto dopo il persist del
-gruppo; `group_commit_max_bytes` chiude anticipatamente il gruppo.
+The default configuration uses Fjall 3.1.8 with canonical payloads and no additional physical compression, and LZ4 for metadata, change log, and surfaces; cache and memtable are limited, and maintenance has timeouts. Canonical logical compression is described in section 25. `group_commit_window = 0` enforces a `SyncAll` for every Durable request. With a positive window, requests are queued on a bounded channel and receive the receipt only after the group's persistence; `group_commit_max_bytes` can close the group early.
 
-### Operazioni e consistenza
+### Operations and consistency
 
-Sono disponibili Put, Get, Delete, CompareAndSwap e AtomicBatch entro una sola
-partizione. Ogni mutazione scrive nello stesso batch atomico:
+Put, Get, Delete, CompareAndSwap, and AtomicBatch are available within a single partition. Each mutation writes as part of the same atomic batch:
 
-- la versione immutabile del record;
-- il puntatore head;
-- il change event con sequence e batch id;
-- il catalogo versionato e i watermark.
+- the immutable version of the record;
+- the head pointer;
+- the change event with sequence and batch id;
+- the versioned catalog and watermarks.
 
-`Durable` riconosce la richiesta solo dopo `SyncAll` o dopo il persist del group
-commit. `Relaxed` garantisce visibilità e ordine logico, non sopravvivenza a un
-power loss; `Engine::sync()` porta catalogo e watermark allo stato Durable.
+`Durable` acknowledges the request only after `SyncAll` or after the persistence of the group commit. `Relaxed` guarantees visibility and logical order, but not survival after a power loss; `Engine::sync()` brings the catalog and watermark to the Durable state.
 
-Ogni collection può usare Delta, VersionRef o SelfContained. Delta richiede dati
-autosufficienti forniti dalla richiesta. VersionRef legge sempre la versione
-immutabile indicata dall'evento, mai il valore corrente. SelfContained richiede
-policy esplicita e rispetta il limite dimensionale configurato. Il GC elimina
-eventi e versioni obsolete soltanto fino al minimo watermark dei consumer
-obbligatori e conserva la versione corrente.
+Each collection can use Delta, VersionRef, or SelfContained. Delta requires self-sufficient data provided by the request. VersionRef always reads the immutable version indicated by the event, never the current value. SelfContained requires explicit policy and respects the configured size limit. The GC removes obsolete events and versions only up to the minimum watermark of required consumers, and always preserves the current version.
 
-### Recovery, checkpoint e manutenzione
+### Recovery, checkpoint, and maintenance
 
-La riapertura ricostruisce lo stato da Fjall e valida formato, backend, shard e
-catalogo. `verify()` controlla che ogni head risolva la versione esatta e che le
-sequence degli eventi siano coerenti. `create_checkpoint(destination)` arresta
-logicamente gli writer, rende Durable il catalogo e copia in modo paginato i
-keyspace in una nuova directory; non sovrascrive una destinazione esistente.
+Reopening reconstructs state from Fjall and validates the format, backend, shards, and catalog. `verify()` checks that each head resolves the exact version and that the sequences of events are consistent. `create_checkpoint(destination)` logically stops writers, makes the catalog durable, and copies keyspaces in paged fashion into a new directory; it does not overwrite an existing destination directory.
 
-`major_compact()` forza flush e compaction tramite API Fjall con timeout, senza
-interpretare i file fisici. `stats()` espone spazio, write buffer, journal,
-tabelle, flush e contatori di compaction disponibili. Dopo qualsiasi errore di
-commit o persist il backend e il motore entrano in stato fail-closed: le nuove
-operazioni vengono rifiutate fino alla chiusura e riapertura, perché l'esito
-fisico potrebbe essere ambiguo.
+`major_compact()` forces flush and compaction through Fjall API with timeout, without interpreting physical files. `stats()` reports available space, write buffer, journal, tables, flush, and compaction counters. After any commit or persist error, the backend and engine enter a fail-closed state: new operations are rejected until closed and reopened, as the physical outcome may be ambiguous.
 
-### Limiti reali
+### Real limits
 
-Idempotency key, workflow e proiezioni sono disponibili attraverso la verticale
-della sezione 24; GPU e operabilità sono descritte nelle sezioni 26 e 27. Lo
-spike Fjall, l'ADR e i rischi upstream sono documentati in
-`benchmarks/storage-spike` e `docs/adr/0001-fjall-backend.md`.
+Idempotency key, workflow, and projections are available in the vertical of section 24; GPU and operability are described in sections 26 and 27. The Fjall spike, the ADR, and upstream risks are documented in `benchmarks/storage-spike` and `docs/adr/0001-fjall-backend.md`.
 
-## 22. Server multiprocesso sperimentale — Milestone 2
+## 22. Experimental multiprocess server — Milestone 2
 
-`aprodb-server` è il processo centrale 1.x. Apre e blocca in esclusiva la
-directory dati; i processi applicativi devono usare `aprodb-client` e non aprire
-la stessa directory. TCP usa per default `127.0.0.1:7643` per le operazioni dati
-e `127.0.0.1:7644` per l'amministrazione.
+`aprodb-server` is the central 1.x process. It opens and exclusively locks the data directory; application processes must use `aprodb-client` and must not open the same directory. By default, TCP uses `127.0.0.1:7643` for data operations and `127.0.0.1:7644` for administration.
 
-### Avvio e autenticazione
+### Startup and authentication
 
-I token data e admin devono essere distinti e contenere fra 16 e 4096 byte.
-Sono letti da `APRODB_DATA_TOKEN` e `APRODB_ADMIN_TOKEN`, non dagli argomenti e
-non vengono stampati dai tipi di configurazione o dai log di avvio.
+Data and admin tokens must be distinct and contain between 16 and 4096 bytes. They are read from `APRODB_DATA_TOKEN` and `APRODB_ADMIN_TOKEN`, not from arguments, and are not printed by configuration types or startup logs.
 
 ```powershell
-$env:APRODB_DATA_TOKEN = "sostituire-token-data"
-$env:APRODB_ADMIN_TOKEN = "sostituire-token-admin"
+$env:APRODB_DATA_TOKEN = "replace-with-data-token"
+$env:APRODB_ADMIN_TOKEN = "replace-with-admin-token"
 cargo run -p aprodb-server -- --data-dir .\aprodb-data
 ```
 
-Gli endpoint si cambiano con `--data-listen` e `--admin-listen` o si disabilitano
-con `--no-data-tcp` e `--no-admin-tcp`. `--data-local` e `--admin-local`
-abilitano named pipe Windows (per esempio `\\.\pipe\aprodb-data`) o Unix domain
-socket. Il server crea la prima named pipe prima di dichiararsi avviato.
+Endpoints can be changed with `--data-listen` and `--admin-listen` or disabled with `--no-data-tcp` and `--no-admin-tcp`. `--data-local` and `--admin-local` enable Windows named pipes (e.g. `\\.\pipe\aprodb-data`) or Unix domain sockets. The server creates the first named pipe before declaring itself started.
 
-TCP plaintext è rifiutato su indirizzi non loopback. L'opzione esplicita
-`--allow-plaintext-non-loopback` rimuove soltanto questo blocco di sicurezza e
-non è indicata per reti non fidate; TLS/mTLS è descritto nella sezione 27. Le
-variabili d'ambiente restano visibili all'account del processo secondo le
-regole del sistema operativo; usare un account di servizio e ACL adeguate.
+TCP plaintext is rejected on non-loopback addresses. The explicit `--allow-plaintext-non-loopback` option removes only this security restriction and is not recommended for untrusted networks; TLS/mTLS is described in section 27. Environment variables remain visible to the process account according to operating system rules; use a service account and appropriate ACLs.
 
-### Protocollo e client Rust
+### Protocol and Rust client
 
-Il wire format è Protobuf con frame length-delimited a prefisso `u32` big-endian.
-L'handshake verifica magic `APRODB`, major protocol 1, ruolo, token e dimensione
-massima. Il limite predefinito è 8 MiB e il client applica il minimo negoziato.
-I messaggi e gli enum canonici sono anche descritti in
-`crates/aprodb-proto/proto/aprodb.proto`; golden e property test proteggono il
-formato.
+The wire format is Protobuf, framed with a big-endian `u32` length prefix. The handshake checks for magic `APRODB`, major protocol 1, role, token, and maximum size. The default limit is 8 MiB, and the client applies the lowest negotiated value. The canonical messages and enums are also described in `crates/aprodb-proto/proto/aprodb.proto`; golden and property tests safeguard the format.
 
-`AsyncClient` multiplexa più request id su una connessione limitata e correla
-risposte anche fuori ordine. `BlockingClient` offre lo stesso percorso per
-programmi sincroni. Sono disponibili Put, Get, Delete, CompareAndSwap,
-AtomicBatch entro partizione, workflow, change stream, superfici, Sync e i
-comandi amministrativi. La receipt conserva
-versione, shard, sequence, durabilità applicata e durable watermark del motore.
-Durable e Relaxed hanno la stessa semantica descritta nella sezione 21.
+`AsyncClient` multiplexes multiple request IDs over a limited connection and correlates responses, even if out of order. `BlockingClient` offers the same interface for synchronous programs. Put, Get, Delete, CompareAndSwap, and AtomicBatch are available within a partition, along with workflow, change stream, surfaces, Sync, and administrative commands. The receipt preserves version, shard, sequence, applied durability, and the engine's durable watermark. Durable and Relaxed have the same semantics as described in section 21.
 
-La deadline client copre insieme attesa nella coda e risposta. Il server rifiuta
-prima dell'ammissione deadline già scadute; un'operazione storage già ammessa non
-viene interrotta a metà, per non lasciare un esito ambiguo. Le idempotency key
-persistenti rendono sicuro il retry esplicito del chiamante; il client non
-esegue ancora retry automatici.
+The client deadline covers both time spent in the queue and waiting for a response. The server refuses already expired deadlines before admission; a storage operation that has already been admitted is not interrupted midway, to avoid ambiguous outcomes. Persistent idempotency keys make explicit retries by the caller safe; the client does not yet perform automatic retries.
 
-### Limiti, backpressure e shutdown
+### Limits, backpressure, and shutdown
 
-Frame, connessioni, richieste in volo per connessione e globali, coda risposte,
-idle timeout e drain timeout hanno limiti configurabili. Le opzioni principali
-sono `--max-frame-bytes`, `--max-connections`,
-`--max-inflight-per-connection`, `--max-inflight-global`,
-`--response-queue-depth`, `--idle-timeout-ms`, `--drain-timeout-ms` e
-`--backpressure-retry-ms`. Al superamento degli inflight il server restituisce
-`Backpressure` con un `retry_after` positivo, senza creare una coda illimitata.
+Frame size, connections, in-flight requests per connection and globally, response queue, idle timeout, and drain timeout all have configurable limits. The main options are `--max-frame-bytes`, `--max-connections`, `--max-inflight-per-connection`, `--max-inflight-global`, `--response-queue-depth`, `--idle-timeout-ms`, `--drain-timeout-ms`, and `--backpressure-retry-ms`. When the in-flight limit is exceeded, the server returns `Backpressure` with a positive `retry_after`, without creating an unbounded queue.
 
-Il ruolo data non può eseguire Health, Stats, Verify, Compact o Shutdown; il
-ruolo admin non può leggere o mutare record. La CLI amministrativa usa solo TCP:
+The data role cannot perform Health, Stats, Verify, Compact, or Shutdown; the admin role cannot read or modify records. The administrative CLI uses only TCP:
 
 ```powershell
-$env:APRODB_ADMIN_TOKEN = "sostituire-token-admin"
+$env:APRODB_ADMIN_TOKEN = "replace-with-admin-token"
 cargo run -p aprodb-cli -- health
 cargo run -p aprodb-cli -- stats
 cargo run -p aprodb-cli -- verify
@@ -599,148 +538,72 @@ cargo run -p aprodb-cli -- compact
 cargo run -p aprodb-cli -- shutdown
 ```
 
-`Stats` espone byte su disco/write buffer e contatori di connessioni, inflight,
-richieste, rifiuti e autenticazioni fallite. Shutdown smette di accettare nuove
-richieste, completa quelle già ammesse, chiude le risposte e attende il drain;
-Ctrl+C usa lo stesso percorso. Quote tenant, audit e TLS sono aggiunti dalla
-Milestone 7; l'esportazione verso un sistema di metriche esterno non è ancora
-disponibile.
+`Stats` exposes on-disk and write-buffer byte counts, plus counters for connections, in-flight requests, total requests, rejections, and failed authentications. Shutdown stops accepting new requests, completes those already admitted, closes responses, and waits for the admitted work to drain; Ctrl+C uses the same path. Tenant quotas, audit, and TLS are described in Milestone 7; export to an external metrics system is not yet available.
 
-## 23. Motore radiale e capacità storage sperimentali — Milestone 3
+## 23. Experimental radial engine and storage capacity — Milestone 3
 
-La Milestone 3 mantiene Fjall come proprietario di WAL, manifest, segmenti,
-Bloom, flush e compaction. AProDB non interpreta né duplica questi formati:
-`stats()` riporta le misure offerte dal backend e `major_compact()` usa soltanto
-la sua API pubblica. I record canonici restano su storage e non esiste una
-`HashMap` contenente l'intero dataset 1.x.
+Milestone 3 keeps Fjall as the owner of WAL, manifest, segments, Bloom, flush, and compaction. AProDB does not interpret or duplicate these formats: `stats()` reports the figures provided by the backend, and `major_compact()` uses only its public API. The canonical records remain in storage, and there is no `HashMap` containing the entire 1.x dataset.
 
-### Budget memoria e cache
+### Memory and cache budget
 
-All'avvio il server rileva la memoria fisica e, quando disponibile, il limite
-cgroup. Senza override usa metà del minore; `--memory-budget-bytes N` richiede un
-valore di almeno 128 MiB e viene comunque limitato dal ceiling rilevato. Il log
-di avvio riporta budget effettivo, fisico, container e configurato in byte.
+At startup, the server detects the physical memory and, when available, the cgroup limit. Without an override, it uses half of the lesser value; `--memory-budget-bytes N` requires a value of at least 128 MiB and is still capped by the detected ceiling. The startup log reports the effective, physical, container, and configured memory budgets in bytes.
 
-`EngineConfig::apply_memory_budget` ripartisce il budget fra cache storage,
-memtable, inflight, metadata cache, object cache, cache compressa, scratch codec
-e negative cache, lasciando headroom non prenotata. La validazione rifiuta una
-somma delle riserve superiore al budget. Le quattro cache AProDB sono sharded e
-indipendenti; la object cache usa
-ammissione pesata per frequenza, score, dimensione e pin, mentre le assenze hanno
-TTL breve. Scansioni, checkpoint, verify e compaction bypassano la object cache.
-`cache_stats()` e il comando admin seguente espongono budget, resident byte,
-hit, miss, admission, rejection ed eviction:
+`EngineConfig::apply_memory_budget` divides the budget among cache storage, memtable, inflight, metadata cache, object cache, compressed cache, scratch codec, and negative cache, leaving some headroom unreserved. Validation rejects any configuration where the sum of reserves exceeds the budget. The four AProDB caches are sharded and independent; the object cache uses weighted admission based on frequency, score, size, and pin, while misses have a short TTL. Scans, checkpoints, verification, and compaction bypass the object cache. `cache_stats()` and the following admin command expose budget, resident bytes, hits, misses, admissions, rejections, and evictions:
 
 ```powershell
 cargo run -p aprodb-cli -- cache-stats
 ```
 
-La prova di capacità dedicata scrive 129 MiB di payload pseudo-casuali con un
-budget motore di 128 MiB, esegue sync, compaction, reopen e letture esatte. È
-marcata `ignored` nella suite ordinaria perché dura circa 80 secondi e scrive più
-di 129 MiB; il gate esplicito è:
+The dedicated capacity test writes 129 MiB of pseudorandom payloads with an engine budget of 128 MiB, performs sync, compaction, reopen, and exact reads. It is marked `ignored` in the regular suite because it lasts about 80 seconds and writes more than 129 MiB; the explicit gate is:
 
 ```powershell
 cargo test -p aprodb-engine --no-default-features `
   canonical_dataset_can_exceed_the_configured_memory_budget -- --ignored
 ```
 
-Questa prova dimostra il superamento del budget configurato, non costituisce un
-benchmark fino a esaurire la RAM fisica né uno SLA di capacità.
+This test demonstrates exceeding the configured budget; it is not a benchmark that exhausts physical RAM nor a capacity SLA.
 
 ### TTL
 
-`PutRequest::expires_at_unix_ms` imposta una scadenza UTC assoluta. Versione,
-head, change event, descrittore radiale e indice TTL sono aggiornati nello stesso
-batch. `Get` non restituisce mai un record scaduto, anche prima della pulizia
-fisica. `expire_due(limit, durability)` esamina un numero limitato di entry e
-cancella soltanto se chiave e versione coincidono ancora, così un vecchio indice
-non può eliminare un aggiornamento più recente. La CLI esegue uno sweep Durable
-di massimo 1024 entry:
+`PutRequest::expires_at_unix_ms` sets an absolute UTC expiration. Version, head, change event, radial descriptor, and TTL index are updated in the same batch. `Get` never returns an expired record, even before physical cleanup. `expire_due(limit, durability)` examines a limited number of entries and deletes only if key and version still match, so an old index cannot delete a newer update. The CLI performs a durable sweep of up to 1024 entries:
 
 ```powershell
 cargo run -p aprodb-cli -- expire
 ```
 
-Non esiste ancora un ciclo TTL automatico nel daemon. Per collection con
-retention `Delta`, l'expiry viene rifiutato finché non è disponibile un delta
-autosufficiente dichiarato; `VersionRef` e `SelfContained` conservano le normali
-garanzie del change log. L'orario UTC non ordina le scritture: version e sequence
-restano l'autorità.
+There is not yet an automatic TTL cycle in the daemon. For collections with `Delta` retention, expiry is rejected until a self-sufficient delta has been declared as available; `VersionRef` and `SelfContained` retain the usual guarantees of the change log. UTC time does not determine write order: version and sequence remain authoritative.
 
-### Radial descriptor, policy e storage class
+### Radial descriptor, policy, and storage class
 
-Ogni Put crea o aggiorna in modo atomico un `RadialDescriptor` con versione canonica,
-timestamp, deadline, dimensioni, stato workflow/proiezioni, costo ricostruzione,
-classe, layer e motivazione. Policy per collection, storage class e generazione
-sono versionate e recuperate alla riapertura. Lo score iniziale usa freschezza e
-urgenza; soglie separate, permanenza minima e pin con scadenza limitano
-oscillazioni. Lo score guida il placement ma non cambia la correttezza.
+Each Put creates or updates a `RadialDescriptor` atomically with canonical version, timestamp, deadline, size, workflow/projection status, reconstruction cost, class, layer, and motivation. Policies for collection, storage class, and generation are versioned and restored on reopen. The initial score uses freshness and urgency; separate thresholds, minimum permanence, and expiring pins limit oscillations. The score guides placement decisions but does not affect correctness.
 
-`explain_placement` restituisce versione, score, segnali, layer corrente e
-raccomandato, classe, pin, residenza in cache, capacità di tiering fisico e
-motivazioni. È read-only rispetto alla object cache. Dal client amministrativo:
+`explain_placement` returns version, score, signals, current and recommended layer, class, pin, cache residency, physical tiering capability, and motivations. It is read-only with respect to the object cache. From the administrative client:
 
 ```powershell
 cargo run -p aprodb-cli -- explain tenant namespace collection partition key
 ```
 
-Sul backend Fjall attuale `physical_storage_tiering` è `false`: più classi senza
-path rimangono etichette logiche, mentre la registrazione di un path fisico
-alternativo fallisce con `Unsupported`. Non vengono simulate migrazioni di file,
-priorità I/O o controllo del medium che il backend non espone. Le superfici
-derivate della Milestone 4 realizzano placement ricostruibile senza muovere il
-record canonico.
+On the current Fjall backend, `physical_storage_tiering` is `false`: multiple classes without a path remain logical labels, while registering an alternative physical path fails with `Unsupported`. No file migrations, I/O priorities, or media controls unsupported by the backend are simulated. The derived surfaces of Milestone 4 achieve reconstructable placement without moving the canonical record.
 
-## 24. Workflow, change stream e superfici sperimentali — Milestone 4
+## 24. Workflow, change stream, and experimental surfaces — Milestone 4
 
-La verticale Milestone 4 è disponibile sia in modalità embedded tramite
-`aprodb::v1::Engine` sia sul data plane mediante `AsyncClient` e
-`BlockingClient`. La semantica worker è at-least-once: AProDB rende atomiche le
-transizioni nel database, ma non promette exactly-once per effetti esterni.
+Milestone 4 is available in embedded mode via `aprodb::v1::Engine` and on the data plane via `AsyncClient` and `BlockingClient`. The worker semantics are at-least-once: AProDB makes database transitions atomic, but does not guarantee exactly-once for external effects.
 
-### Idempotenza persistente
+### Persistent idempotency
 
-Put, Delete, AtomicBatch, Append, Claim, Heartbeat, Complete, Fail e Publish
-accettano un hash di idempotenza opzionale di 32 byte. Il chiamante deve
-calcolare l'hash da una chiave opaca senza inviare il segreto originale. Lo scope
-è la partizione; il motore salva fingerprint della richiesta e receipt nello
-stesso batch della mutazione canonica. Un retry identico entro
-`EngineConfig::idempotency_retention` restituisce la stessa versione, receipt e
-lease; riusare lo stesso hash per parametri diversi restituisce `Conflict`.
+Put, Delete, AtomicBatch, Append, Claim, Heartbeat, Complete, Fail, and Publish accept an optional 32-byte idempotency hash. The caller must compute the hash from an opaque key without sending the original secret. The scope is the partition; the engine saves a fingerprint of the request and receipt in the same batch as the canonical mutation. An identical retry within `EngineConfig::idempotency_retention` returns the same version, receipt, and lease; reusing the same hash for different parameters returns `Conflict`.
 
-Il default di retention è 24 ore. `purge_expired_idempotency(now, limit)` rimuove
-record e indice di scadenza con un batch limitato; non esiste ancora uno sweep
-periodico nel daemon. Un record scaduto non viene comunque riutilizzato come
-esito valido. La durabilità della registrazione coincide con quella della
-mutazione; un esito Durable viene riconosciuto soltanto dopo il persist.
+The default retention period is 24 hours. `purge_expired_idempotency(now, limit)` removes records and expiration indices with a limited batch; there is not yet a periodic sweep in the daemon. An expired record cannot be reused as a valid result. The durability of recording coincides with that of the mutation; a Durable outcome is recognized only after persistence.
 
-### Workflow e fencing
+### Workflow and fencing
 
-`Append` crea un record nuovo nello stato `pending`. `Claim` opera entro una
-`WorkflowScope` tenant/namespace/collection/partition, sceglie un batch limitato
-di record eleggibili e li porta atomicamente a `leased`. Ogni risultato include
-record/versione, receipt, lease id casuale a 128 bit, fencing token monotono,
-deadline UTC, tempo server e retry metadata. Il limite predefinito è 128 record,
-la lease massima 15 minuti e il totale di lease attive nel processo è limitato.
+`Append` creates a new record with status `pending`. `Claim` operates within a `WorkflowScope` (tenant/namespace/collection/partition), selects a limited batch of eligible records, and atomically moves them to `leased`. Each result includes the record/version, receipt, a random 128-bit lease ID, a monotonically increasing fencing token, UTC deadline, server time, and retry metadata. The default limit is 128 records, the maximum lease duration is 15 minutes, and the total number of active leases per process is limited.
 
-`Heartbeat` richiede lease id e fencing token correnti e assegna una nuova
-deadline a partire dal tempo server. `Complete` porta il record a `completed`;
-`Fail(false)` lo riporta a `pending`, salvo raggiungimento di
-`max_workflow_attempts`, mentre `Fail(true)` lo porta subito a `dead_letter`.
-`Publish` accetta soltanto `completed` e produce `published`; ripeterlo su un
-record già pubblicato è un no-op idempotente. Lease scadute o prove obsolete
-restituiscono `Conflict` e non mutano il record.
+`Heartbeat` requires the current lease ID and fencing token, and assigns a new deadline based on server time. `Complete` moves the record to `completed`; `Fail(false)` returns it to `pending`, unless `max_workflow_attempts` has been reached, while `Fail(true)` immediately moves it to `dead_letter`. `Publish` only accepts `completed` and produces `published`; repeating it on an already published record is an idempotent no-op. Expired leases or obsolete attempts return `Conflict` and do not modify the record.
 
-Nel processo una `Instant` monotona protegge la validità della lease. Dopo un
-riavvio valgono deadline UTC persistita e
-`lease_recovery_safety_margin` configurabile; un record leased scaduto torna
-eleggibile e il claim successivo incrementa il fencing token. Record, indice
-workflow, change event, idempotenza e catalogo sono aggiornati nello stesso
-batch storage. Le collection `Delta` vengono rifiutate dal workflow generico
-finché non è dichiarato un delta autosufficiente per le transizioni.
+During processing, a monotonic `Instant` is used to ensure the validity of the lease. After a restart, the persisted UTC deadline and configurable `lease_recovery_safety_margin` apply; an expired leased record becomes eligible again, and the next claim increments the fencing token. The record, workflow index, change event, idempotency, and catalog are all updated in the same batch storage operation. `Delta` collections are rejected by the generic workflow until a self-sufficient delta for transitions is declared.
 
-Esempio client asincrono abbreviato:
+Abbreviated asynchronous client example:
 
 ```rust
 use std::time::Duration;
@@ -776,49 +639,19 @@ if let Some(job) = claimed.first() {
 
 ### Change stream
 
-`subscribe_changes(tenant, namespace, collection, shard, after_sequence, limit)`
-restituisce una pagina di `ChangeEvent` e il watermark globale dello shard. Il
-watermark può avanzare anche se la pagina filtrata è vuota, perché altri
-collection condividono lo shard: il consumer deve salvare il watermark della
-risposta, non inferirlo dall'ultimo evento filtrato. Un AtomicBatch non viene
-spezzato; un cursore nel mezzo di un batch viene rifiutato.
+`subscribe_changes(tenant, namespace, collection, shard, after_sequence, limit)` returns a page of `ChangeEvent` and the global watermark of the shard. The watermark may advance even if the filtered page is empty, because other collections share the shard: the consumer must save the watermark from the response, not infer it from the last filtered event. An AtomicBatch is not split; a cursor in the middle of a batch is rejected.
 
-Se il GC ha eliminato la sequence richiesta, il server restituisce
-`ChangeLogGap`. `VersionRef` punta sempre alla versione immutabile esatta;
-`SelfContained` contiene il record soltanto secondo policy e limite; `Delta`
-resta autosufficiente per il consumer dichiarato. Il protocollo usa frame
-limitati: il consumer deve scegliere pagine proporzionate al frame negoziato.
-Questa API è pull/paginata; notifiche push e binding non-Rust non sono ancora
-presenti.
+If the GC has deleted the requested sequence, the server returns `ChangeLogGap`. `VersionRef` always points to the exact immutable version; `SelfContained` contains the record only according to policy and limit; `Delta` remains self-sufficient for the declared consumer. The protocol uses limited-size frames: the consumer must choose pages proportionate to the negotiated frame size. This API is pull/paged; push notifications and non-Rust bindings are not yet available.
 
-### Superfici work/read
+### Work/Read surfaces
 
-Una `SurfaceDefinition` persistente contiene id, tipo `Work` o `Read`, una
-collection sorgente, gli stati workflow ammessi, formato, limiti di record/byte
-e numero di generazioni trattenute. L'ordine è totale e deterministico secondo
-`RecordIdentity`. I formati implementati sono il frame binario AProDB di record
-e JSON pre-serializzato. Il builder limita l'output prima per record e poi per
-byte; non alloca una coda senza limite.
+A persistent `SurfaceDefinition` contains an id, type `Work` or `Read`, a source collection, the allowed workflow states, format, record/byte limits, and number of retained generations. The order is total and deterministic according to `RecordIdentity`. The implemented formats are the AProDB binary record frame and pre-serialized JSON. The builder limits output first by record and then by byte; it does not allocate an unbounded queue.
 
-`create_surface` è amministrativa e idempotente soltanto per la stessa
-definizione. Registra anche un consumer obbligatorio per shard, così GC non può
-rimuovere le versioni richieste. `build_surface(id, max_events, durability)`
-legge dal watermark successivo, applica insert/update/remove, serializza una
-generazione immutabile e pubblica nello stesso batch generazione, puntatore,
-watermark consumer e catalogo. La pubblicazione viene sempre resa Durable,
-anche se il parametro richiesto è Relaxed, perché un watermark non durevole non
-può autorizzare GC. Non esiste ancora un builder periodico: va invocato dal
-controllo amministrativo.
+`create_surface` is administrative and idempotent only for the same definition. It also registers a mandatory consumer per shard, so GC cannot remove the required versions. `build_surface(id, max_events, durability)` reads from the next watermark, applies insert/update/remove, serializes an immutable generation, and publishes in the same batch the generation, pointer, consumer watermark, and catalog. Publication is always made Durable, even if the requested parameter is Relaxed, because a non-durable watermark cannot authorize GC. There is not yet a periodic builder: it must be invoked through an administrative call.
 
-`get_surface` usa il data plane e restituisce generazione, timestamp, watermark
-per shard, staleness in sequence, flag `complete` ed errori. `complete` è vero
-quando i watermark raggiungono le sequence correnti; una build con budget eventi
-esaurito può pubblicare una generazione valida ma stale. `rebuild_surface` è
-amministrativa, scansiona lo stato canonico sotto lock degli shard e va usata
-esplicitamente dopo `ChangeLogGap`, schema change o danno derivato. Non usa
-snapshot MVCC longevi.
+`get_surface` uses the data plane and returns the generation, timestamp, per-shard watermarks, staleness in sequence, a `complete` flag, and errors. `complete` is true when the watermarks reach the current sequences; a build with an exhausted event budget can publish a valid but stale generation. `rebuild_surface` is administrative, scans the canonical state under shard lock, and should be used explicitly after `ChangeLogGap`, schema change, or derived damage. It does not use long-lived MVCC snapshots.
 
-Esempio amministrativo:
+Administrative example:
 
 ```powershell
 cargo run -p aprodb-cli -- create-surface pending-work work tenant namespace jobs pending records 1000 8388608 2
@@ -826,52 +659,23 @@ cargo run -p aprodb-cli -- build-surface pending-work 4096
 cargo run -p aprodb-cli -- rebuild-surface pending-work
 ```
 
-Il client dati legge la superficie con
-`get_surface(tenant, namespace, projection_id)`. Il server verifica che tenant e
-namespace coincidano con la sorgente. Le generazioni più vecchie oltre la
-retention vengono eliminate atomicamente durante la pubblicazione; non esiste
-ancora rollback amministrativo a una generazione precedente.
+The data client reads the surface with `get_surface(tenant, namespace, projection_id)`. The server checks that the tenant and namespace match the source. Older generations beyond retention are removed atomically during publication; there is not yet administrative rollback to a previous generation.
 
-### Recovery, verifica e limiti
+### Recovery, verification, and limitations
 
-Workflow index, idempotenza, definizioni, puntatori, generazioni e payload delle
-superfici appartengono al checkpoint logico e vengono riaperti senza ricostruire
-stato già Durable. `verify()` controlla indici workflow, riferimenti di versione,
-generazioni trattenute e coerenza fra pointer e watermark del catalogo. Un gap
-non viene nascosto: la build incrementale fallisce e richiede rebuild esplicito.
+Workflow index, idempotency, definitions, pointers, generations, and surface payloads belong to the logical checkpoint and are reopened without rebuilding already Durable state. `verify()` checks workflow indexes, version references, retained generations, and consistency between pointer and watermark in the catalog. A gap is not hidden: incremental build fails and requires explicit rebuild.
 
-Le superfici attuali sono un incremento minimo dichiarativo: una collection,
-filtro per stato workflow, ordine per identità e output record/JSON. Filtri su
-indici generici, finestre temporali, selezione/trasformazione campi,
-MessagePack/Protobuf/Arrow, dipendenze fra proiezioni, scheduler automatico e
-rollback restano non implementati. Non sono ancora esportate metriche aggregate
-di claim/lease/build; receipt, build report, watermark, staleness e Stats del
-server sono le superfici osservabili disponibili. Quote per tenant, audit, TLS e
-cifratura sono descritti nella sezione 27.
+The current surfaces are a minimal declarative increment: a collection, workflow status filter, sort by identity, and output as record/JSON. Filters on generic indexes, time windows, field selection/transformation, MessagePack/Protobuf/Arrow, dependencies between projections, automatic scheduler, and rollback remain unimplemented. Aggregate metrics for claim/lease/build are not yet exported; receipt, build report, watermark, staleness, and server Stats are the observable surfaces currently available. Quotas per tenant, audit, TLS, and encryption are described in section 27.
 
-## 25. Compressione logica canonica — Milestone 5
+## 25. Canonical logical compression — Milestone 5
 
-I nuovi record 1.x usano il frame logico `APRX` v1. Il record conserva metadata
-e workflow separati dal payload; il payload serializzato contiene versione del
-codec, `Raw` o `Zstandard`, lunghezza logica, CRC32 e optional dictionary id.
-Una lettura verifica frame, lunghezza, checksum, dizionario e decompressione
-prima di ricostruire `Payload`. I frame sperimentali `APRC` prodotti prima della
-Milestone 5 restano leggibili; i nuovi writer non li producono.
+The new 1.x records use the logical frame `APRX` v1. The record keeps metadata and workflow separate from the payload; the serialized payload contains codec version, `Raw` or `Zstandard`, logical length, CRC32, and optional dictionary id. A read verifies the frame, length, checksum, dictionary, and decompression before reconstructing `Payload`. Experimental `APRC` frames produced before Milestone 5 remain readable; new writers do not produce them.
 
-### Policy per collection e tier
+### Collection and tier policy
 
-`CompressionPolicy` ha una policy distinta per `Surface`, `Hot`, `Warm`, `Cold`
-e `Archive`. Ogni tier canonico configura modalità, livello Zstandard, soglia
-minima input, risparmio minimo e dictionary id. `Surface` è Raw in questa
-milestone perché il suo payload è già serializzato e può usare la compressione
-fisica separata del keyspace. I prefissi predefiniti saltano image, audio,
-video, zip, gzip e zstd. Se il candidato Zstandard non supera il risparmio
-minimo, il record conserva Raw senza espansione.
+`CompressionPolicy` has a distinct policy for `Surface`, `Hot`, `Warm`, `Cold`, and `Archive`. Each canonical tier sets mode, Zstandard level, minimum input threshold, minimum savings, and dictionary id. `Surface` is Raw in this milestone because its payload is already serialized and can use separate physical compression of the keyspace. Default prefixes skip image, audio, video, zip, gzip, and zstd. If the Zstandard candidate does not exceed the minimum savings, the record remains Raw without expansion.
 
-La policy è persistita Durable nel catalogo compressione e si applica alle
-nuove versioni; non riscrive retroattivamente quelle esistenti. Il layer usato è
-quello del descrittore radiale precedente, oppure Warm per una nuova chiave.
-Esempi amministrativi:
+The policy is persisted durably in the compression catalog and applies to new versions; it does not retroactively rewrite existing ones. The tier used is that of the previous radial descriptor, or Warm for a new key. Administrative examples:
 
 ```powershell
 cargo run -p aprodb-cli -- compression-policy tenant namespace objects
@@ -880,72 +684,33 @@ cargo run -p aprodb-cli -- set-compression tenant namespace objects zstd
 cargo run -p aprodb-cli -- compression-stats
 ```
 
-`set-compression raw|zstd` applica il profilo uniforme CLI ai quattro tier
-canonici. Per livelli, soglie, skip list e dictionary id specifici usare
-`AsyncClient::configure_compression` o
-`Engine::configure_compression_policy` con una `CompressionPolicy` completa.
+`set-compression raw|zstd` applies the uniform CLI profile to the four canonical tiers. For specific levels, thresholds, skip lists, and dictionary ids, use `AsyncClient::configure_compression` or `Engine::configure_compression_policy` with a complete `CompressionPolicy`.
 
-### Pool, memoria e cache
+### Pool, memory and cache
 
-`EngineConfig::compression_channels` deve essere una potenza di due fra 1 e 64;
-il default è la potenza di due della parallelità disponibile, massimo 16. I
-contesti compressor/decompressor vengono riusati. Lo scratch totale è limitato
-da `compression_scratch_bytes`; una richiesta che non può prenotarlo riceve
-`Backpressure` prima del commit. `apply_memory_budget` assegna per default il
-12% allo scratch e l'8% alla cache compressa.
+`EngineConfig::compression_channels` must be a power of two between 1 and 64; the default is the power of two corresponding to the available parallelism, with a maximum of 16. Compressor and decompressor contexts are reused. The total scratch space is limited by `compression_scratch_bytes`; a request that cannot reserve this will receive `Backpressure` before the commit. `apply_memory_budget` by default allocates 12% to scratch and 8% to the compressed cache.
 
-La object cache contiene record decodificati; la compressed cache conserva il
-frame della versione corrente. Hanno budget, admission, hit/miss, eviction e
-invalidazione per versione separati. `cache-stats` espone entrambe. Scansioni e
-manutenzione continuano a bypassare la object cache; le versioni storiche non
-sono trattenute indefinitamente in cache.
+The object cache contains decoded records; the compressed cache retains the frame of the current version. They have separate budgets, admissions, hit/miss tracking, evictions, and version invalidation. `cache-stats` displays both. Scans and maintenance continue to bypass the object cache; historical versions are not held indefinitely in cache.
 
-`compression-stats` espone byte logici/codificati, record Raw/Zstandard/con
-dizionario, fallback incomprimibili, skip content-type, microsecondi codec,
-errori, canali e scratch corrente/budget. Sono contatori dei tentativi del codec,
-non soltanto dei commit definitivamente riusciti.
+`compression-stats` displays logical/encoded bytes, Raw/Zstandard/with-dictionary records, incompressible fallbacks, skipped content-types, codec microseconds, errors, channels, and current/budgeted scratch. These are counters of codec attempts, not only of successfully committed operations.
 
-### Dizionari
+### Dictionaries
 
-`train_and_activate_dictionary` e `AsyncClient::train_dictionary` richiedono
-almeno otto campioni di training, un set di validazione separato, schema,
-dimensione massima e guadagno minimo. Numero campioni, byte totali, dimensione e
-numero dizionari sono limitati da `EngineConfig`. Il dizionario viene pubblicato
-solo se riduce il totale del validation set rispetto allo stesso livello senza
-dizionario. Dizionario e catalogo aggiornato entrano nello stesso batch Durable.
+`train_and_activate_dictionary` and `AsyncClient::train_dictionary` require at least eight training samples, a separate validation set, schema, maximum size, and minimum gain. The number of samples, total bytes, dictionary size, and number of dictionaries are limited by `EngineConfig`. The dictionary is published only if it reduces the total validation set size compared to the same level without a dictionary. The updated dictionary and catalog are committed in the same durable batch.
 
-Ogni versione registra l'id esatto; una lettura non usa mai il dizionario
-corrente al suo posto. I byte del dizionario, checksum e statistiche di
-validazione appartengono a checkpoint e recovery. Un dizionario mancante o
-corrotto restituisce `Corrupt`, non un valore parziale. Non esiste ancora garbage
-collection dei dizionari: vengono trattenuti conservativamente finché non sarà
-disponibile una prova completa di reachability delle versioni.
+Each version records its exact dictionary id; a read operation never uses the current dictionary in place of the recorded one. The dictionary bytes, checksum, and validation statistics are part of checkpoint and recovery. A missing or corrupt dictionary returns `Corrupt`, not a partial value. There is no dictionary garbage collection yet: dictionaries are retained conservatively until a complete version reachability test is available.
 
-### Compressione fisica e benchmark
+### Physical compression and benchmark
 
-Il default evita la doppia compressione sul keyspace canonico; Fjall conserva
-LZ4 per metadata, change log e superfici. Le opzioni fisiche restano
-configurabili per keyspace, ma abilitarle insieme a Zstandard richiede una misura
-del workload reale. La matrice riproducibile a quattro modalità, con ratio,
-latenza Durable, throughput, CPU, RAM, I/O, spazio, compaction e recovery, è in
-`benchmarks/compression`. Il run locale è piccolo e non definisce uno SLA.
+The default prevents double compression on the canonical keyspace; Fjall retains LZ4 for metadata, change logs, and surfaces. Physical options remain configurable per keyspace, but enabling them together with Zstandard requires measurement of the actual workload. The reproducible four-mode matrix, with ratio, durable latency, throughput, CPU, RAM, I/O, space, compaction, and recovery, is in `benchmarks/compression`. The local run is small and does not define an SLA.
 
-Blob esterni non vengono trasformati dal codec canonico: `BlobReference` resta
-un riferimento. Compressione e storage dei byte blob richiederanno una policy
-separata quando il blob store sarà implementato. TLS, cifratura at-rest, backup
-e tooling copy-only sono descritti nella sezione 27.
+External blobs are not transformed by the canonical codec: `BlobReference` remains a reference. Compression and storage of blob bytes will require a separate policy when the blob store is implemented. TLS, at-rest encryption, backup, and copy-only tooling are described in section 27.
 
-## 26. Compute eterogeneo — Milestone 6
+## 26. Heterogeneous compute — Milestone 6
 
-`Engine::vector_exact` e `AsyncClient::vector_exact` eseguono ricerca exact
-top-k su tutti i `Payload::Vector` della collection che hanno la stessa
-dimensione della query. Sono implementate dot product e cosine similarity. La
-CPU è l'autorità semantica: input NaN/infinito sono rifiutati, la cosine di un
-vettore nullo vale zero e i pareggi sono ordinati per riga, quindi per identità
-nell'ordine della scansione canonica. CPU e GPU dichiarano tolleranza relativa
-`1e-4` sui risultati float.
+`Engine::vector_exact` and `AsyncClient::vector_exact` perform exact top-k search on all `Payload::Vector` in the collection that have the same dimension as the query. Dot product and cosine similarity are implemented. The CPU is the semantic authority: NaN/infinite input values are rejected, the cosine of a zero vector is zero, and ties are ordered by row, i.e., by identity in the order of canonical scan. CPU and GPU declare a relative tolerance of `1e-4` on float results.
 
-Esempio client asincrono:
+Asynchronous client example:
 
 ```rust
 use aprodb_client::{ComputePreference, VectorMetric};
@@ -961,138 +726,83 @@ for hit in result.hits {
 # Ok::<(), aprodb_client::ClientError>(())
 ```
 
-`max_scan_records` è obbligatorio e limita i record esaminati, non soltanto i
-vettori compatibili. Se la collection lo supera, la richiesta fallisce con
-`ResourceLimit` invece di restituire un risultato parziale. Il batch colonnare
-deve inoltre rispettare `compute.max_batch_rows` e `max_batch_bytes`. Record non
-vettoriali e vettori di altra dimensione vengono ignorati. ExactFlat è O(N):
-non esiste ancora un indice ANN.
+`max_scan_records` is mandatory and limits the records examined, not just compatible vectors. If the collection exceeds it, the request fails with `ResourceLimit` instead of returning a partial result. The columnar batch must also adhere to `compute.max_batch_rows` and `max_batch_bytes`. Non-vector records and vectors of different dimensions are ignored. ExactFlat is O(N): there is no ANN index yet.
 
-### Consistenza, scheduler e fallback
+### Consistency, scheduler, and fallback
 
-La scansione acquisisce brevemente tutti gli ordinatori shard, costruisce una
-proiezione coerente e cattura la generazione globale; i lock vengono rilasciati
-prima del calcolo. Il risultato rappresenta quella generazione e può essere
-superato da una mutazione concorrente successiva, come una normale lettura. La
-cache VRAM usa projection id, generazione e versione schema: non legge mai un
-buffer di una generazione precedente.
+The scan briefly acquires all shard orderers, builds a coherent projection, and captures the global generation; locks are released before computation. The result represents that generation and can be superseded by a concurrent mutation afterward, as with a normal read. VRAM cache uses projection id, generation, and schema version: it never reads a buffer from a previous generation.
 
-`ComputePreference::Cpu` forza il pool CPU dedicato. `Auto` sceglie accelerator
-soltanto quando la stima
-`transfer_in + queue_wait + launch + gpu_compute + transfer_out + sync + risk`
-è inferiore alla CPU. `Accelerator` salta il confronto di costo, ma conserva il
-fallback CPU sicuro. Assenza GPU, coda/byte budget esauriti, timeout, errore
-driver o circuit breaker non compromettono storage e producono
-`CpuFallback` con una motivazione nella risposta.
+`ComputePreference::Cpu` forces the dedicated CPU pool. `Auto` chooses the accelerator only when the estimate `transfer_in + queue_wait + launch + gpu_compute + transfer_out + sync + risk` is lower than for the CPU. `Accelerator` skips the cost comparison but retains the safe CPU fallback. Absence of GPU, exhausted queue/byte budget, timeout, driver error, or circuit breaker do not compromise storage and result in `CpuFallback` with a reason in the response.
 
-La coda, i byte in volo, i worker, il batch, l'attesa micro-batch, il timeout e
-la VRAM hanno tutti limiti in `EngineConfig::compute`. Il server espone override
-con `--compute-cpu-threads`, `--compute-queue-depth`,
-`--compute-queue-bytes`, `--compute-max-batch-rows`,
-`--compute-max-batch-bytes`, `--compute-timeout-ms`,
-`--compute-micro-batch-ms` e `--gpu-vram-bytes`. Valori incoerenti impediscono
-l'avvio. Il budget memoria automatico riserva anche la coda compute.
+The queue, in-flight bytes, workers, batch, pending micro-batch, timeout, and VRAM all have limits in `EngineConfig::compute`. The server exposes overrides with `--compute-cpu-threads`, `--compute-queue-depth`, `--compute-queue-bytes`, `--compute-max-batch-rows`, `--compute-max-batch-bytes`, `--compute-timeout-ms`, `--compute-micro-batch-ms`, and `--gpu-vram-bytes`. Inconsistent values prevent startup. The automatic memory budget also reserves memory for the compute queue.
 
-### GPU, metriche e benchmark
+### GPU, metrics and benchmarks
 
-La feature server predefinita `gpu` usa wgpu e inizializza adapter/device/pipeline
-solo alla prima richiesta accelerata. `--no-default-features` elimina wgpu e
-mantiene l'intera semantica via CPU. La VRAM conserva soltanto buffer derivati
-con eviction LRU; schema/generazione diversa, invalidazione o reset del device
-richiedono un nuovo upload. Readback asincrono, poll e attesa risposta sono
-limitati dal timeout. Non esistono dati canonici in VRAM.
+The default server feature `gpu` uses wgpu and initializes the adapter/device/pipeline only on the first accelerated request. `--no-default-features` removes wgpu and maintains the entire semantics via CPU. VRAM only retains derived buffers with LRU eviction; different schema/generation, invalidation, or device reset require a new upload. Asynchronous readback, polling, and response waiting are limited by timeout. No canonical data is stored in VRAM.
 
-L'endpoint admin `compute_stats` e la CLI espongono richieste CPU/accelerator,
-fallback, rifiuti, timeout, batch, byte in volo, nome adapter, uso/hit/miss/evict
-VRAM, byte upload/readback, tempi transfer/kernel e reset:
+The `compute_stats` admin endpoint and the CLI expose CPU/accelerator requests, fallback, rejections, timeouts, batches, in-flight bytes, adapter name, VRAM usage/hits/misses/evictions, upload/readback bytes, transfer/kernel times, and reset:
 
 ```powershell
 cargo run -p aprodb-cli -- compute-stats
 ```
 
-Il benchmark riproducibile CPU/GPU, inclusi trasferimenti e top-k, è in
-`benchmarks/compute`. Sul sistema locale la GPU calda è risultata più veloce
-solo per alcune forme intermedie: non viene promessa accelerazione e il modello
-va calibrato sull'hardware reale. ANN, filtri/aggregazioni GPU, CUDA/HIP,
-autotaratura e pubblicazione di proiezioni mutate da GPU non sono disponibili.
+The reproducible CPU/GPU benchmark, including transfers and top-k, is in `benchmarks/compute`. On the local system, a warm GPU was faster only for some intermediate batch shapes: acceleration is not guaranteed, and the model must be calibrated on real hardware. ANN, GPU filters/aggregations, CUDA/HIP, auto-tuning, and publication of GPU-mutated projections are not available.
 
-## 27. Operabilità e sicurezza — Milestone 7
+## 27. Operability and security — Milestone 7
 
-La Milestone 7 è disponibile sul percorso 1.x e resta sperimentale. Tutte le
-procedure che possono cambiare formato o ricostruire dati lavorano in una nuova
-directory: AProDB non esegue restore, repair, rekey, upgrade o import in-place.
-Una directory destinazione già esistente viene sempre rifiutata.
+Milestone 7 is available on the 1.x track and remains experimental. All procedures that can change format or rebuild data operate in a new directory: AProDB does not perform restore, repair, rekey, upgrade, or import in-place. An existing destination directory is always rejected.
 
-### Cifratura at-rest e keyring
+### At-rest encryption and keyring
 
-`EngineConfig::encryption` abilita XChaCha20-Poly1305 per i valori di tutti i
-keyspace. L'AAD lega ciphertext, keyspace, key id e chiave storage; nonce e tag
-sono verificati a ogni lettura. Chiave errata, frame spostato o alterato
-restituiscono `Encryption`/`Corrupt` senza fallback in chiaro. Un database
-cifrato non si apre senza tutte le chiavi richieste dal backup o dai record.
+`EngineConfig::encryption` enables XChaCha20-Poly1305 for the values of all keyspaces. The AAD binds the ciphertext, keyspace, key ID, and storage key; nonce and tag are verified on every read. An incorrect key, a moved frame, or tampered data returns `Encryption`/`Corrupt` without cleartext fallback. An encrypted database cannot be opened without all the keys required for backup or records.
 
-Il server accetta `--encryption-keyring FILE` oppure
-`APRODB_ENCRYPTION_KEYRING_FILE`. Il file JSON è limitato a 64 KiB:
+The server accepts `--encryption-keyring FILE` or `APRODB_ENCRYPTION_KEYRING_FILE`. The JSON file is limited to 64 KiB:
 
 ```json
 {
   "active_key_id": "primary-2026",
   "keys": {
-    "primary-2026": "<64 caratteri hex, 32 byte>"
+    "primary-2026": "<64 hex characters, 32 bytes>"
   }
 }
 ```
 
-Sono ammesse al massimo 16 chiavi. Il materiale non appare in `Debug`, log,
-manifest o audit. Su Unix il loader richiede permessi solo-owner; su Windows
-l'operatore deve applicare una ACL equivalente. File PEM, keyring, `.env` e
-chiavi sono esclusi dal repository. I nomi delle chiavi fisiche Fjall non sono
-occultati: per cifrare anche nomi file e pattern di accesso serve cifratura del
-volume.
+A maximum of 16 keys are allowed. The key material does not appear in `Debug`, logs, manifest, or audit. On Unix, the loader requires owner-only permissions; on Windows, the operator must apply an equivalent ACL. PEM files, the keyring, `.env`, and keys are excluded from the repository. The names of Fjall physical keys are not hidden: encrypting filenames and access patterns requires volume encryption.
 
-La rotazione è esplicita e copy-only:
+Key rotation is explicit and copy-only:
 
 ```powershell
 cargo run -p aprodb-cli --bin aprodb-ops -- rekey .\data-old .\data-new `
   --source-keyring .\old-keyring.json --destination-keyring .\new-keyring.json
 ```
 
-La copia viene riaperta e verificata con il nuovo keyring; la sorgente conserva
-la chiave precedente e non viene modificata.
+The copy is re-opened and verified with the new keyring; the source retains the previous key and is not modified.
 
-### TLS e mTLS
+### TLS and mTLS
 
-TCP può usare Rustls con catena e chiave PEM:
+TCP can use Rustls with PEM chain and key:
 
 ```powershell
 cargo run -p aprodb-server -- --data-dir .\aprodb-data `
   --tls-cert .\server-cert.pem --tls-key .\server-key.pem
 ```
 
-`--tls-client-ca .\client-ca.pem` rende obbligatorio un certificato client
-valido. La CLI admin usa `--tls-ca`, `--tls-server-name` e, per mTLS,
-`--tls-cert`/`--tls-key`. Timeout TLS e handshake applicativo sono limitati.
-Named pipe e Unix socket restano locali e non applicano TLS. Token data/admin
-continuano a essere verificati anche dentro il canale TLS.
+`--tls-client-ca .\client-ca.pem` makes a valid client certificate mandatory. The admin CLI uses `--tls-ca`, `--tls-server-name`, and, for mTLS, `--tls-cert`/`--tls-key`. TLS timeouts and application handshake are limited. Named pipes and Unix sockets remain local and do not use TLS. Data and admin tokens continue to be verified inside the TLS channel.
 
-### Audit e quote
+### Audit and quotas
 
-Compact, shutdown, expiry, creazione/build/rebuild superficie, configurazione
-compressione, training dizionario e backup producono un evento Durable
-`Attempted` prima dell'azione e un evento `Succeeded` o `Failed` dopo l'esito.
-Ogni evento contiene sequence, event id, timestamp, request id, principal,
-operazione, outcome, hash BLAKE3 opzionale del target e classe errore; non
-contiene token, chiave record o payload. La lettura è paginata e solo admin:
+Compact, shutdown, expiry, creation/build/rebuild surface, compression configuration, dictionary training, and backup produce a Durable `Attempted` event before the action and a `Succeeded` or `Failed` event after the outcome.
+Each event contains sequence, event id, timestamp, request id, principal, operation, outcome, optional BLAKE3 hash of the target, and error class; it does not contain token, record key, or payload.
+Audit event reading is paginated and restricted to admin users:
 
 ```powershell
 cargo run -p aprodb-cli -- audit - 100
 cargo run -p aprodb-cli -- audit 200 100
 ```
 
-`--admin-principal` assegna l'identità registrata. L'audit è incluso in
-checkpoint, backup, recovery e `verify`.
+`--admin-principal` assigns the registered identity. Audit is included in checkpoint, backup, recovery, and `verify`.
 
-`--tenant-quotas FILE` carica un JSON limitato con questa forma:
+`--tenant-quotas FILE` loads a size-limited JSON file with this form:
 
 ```json
 {
@@ -1107,27 +817,17 @@ checkpoint, backup, recovery e `verify`.
 }
 ```
 
-Le quote vengono controllate prima del dispatch. Superare byte o lavoro
-compute restituisce `ResourceLimit`; frequenza o inflight restituiscono
-`Backpressure` con retry-after. La finestra richieste/secondo è fissa, in
-memoria e non costituisce billing. `--max-data-bytes`,
-`--min-free-disk-bytes` e `--max-compaction-temporary-bytes` proteggono il
-disco. Scritture oltre quota falliscono prima della mutazione; compaction,
-checkpoint e restore controllano la stima di spazio prima di iniziare.
+Quotas are checked before dispatch. Exceeding the byte or compute-work quota returns `ResourceLimit`; rate or in-flight limits return `Backpressure` with retry-after. The per-second quota window is fixed, maintained in memory, and does not constitute billing. `--max-data-bytes`, `--min-free-disk-bytes`, and `--max-compaction-temporary-bytes` protect the disk. Over-quota writes fail before mutation; compaction, checkpoint, and restore check the space estimate before starting.
 
-### Backup, restore, verify e repair
+### Backup, restore, verify, and repair
 
-Con `--backup-root PATH`, il server accetta soltanto nomi backup ASCII sicuri e
-li risolve sotto quella root:
+With `--backup-root PATH`, the server accepts only safe ASCII backup names and resolves them under that root:
 
 ```powershell
 cargo run -p aprodb-cli -- backup daily-001
 ```
 
-Il backup crea un checkpoint coerente, lo riapre, esegue `verify`, inventaria
-file e byte con BLAKE3 e pubblica `backup-manifest.json` con catalog generation,
-watermark, backend, formato e key id. Una semplice copia non è dichiarata
-backup riuscito. Verifica e restore offline:
+Backup creates a consistent checkpoint, reopens it, runs `verify`, inventories files and bytes with BLAKE3, and publishes `backup-manifest.json` with catalog generation, watermark, backend, format, and key id. A simple copy is not considered a successful backup. Verification and restore are performed offline:
 
 ```powershell
 cargo run -p aprodb-cli --bin aprodb-ops -- verify-backup .\backups\daily-001
@@ -1136,25 +836,23 @@ cargo run -p aprodb-cli --bin aprodb-ops -- restore .\backups\daily-001 .\restor
 cargo run -p aprodb-cli --bin aprodb-ops -- verify .\restored --keyring .\keyring.json
 ```
 
-`verify` pagina tutti i record, versioni/eventi, TTL, workflow, radial index,
-superfici, dizionari e audit. Non ripara. La sola ricostruzione ammessa riguarda
-stato derivato e richiede copia più conferma letterale:
+`verify` scans all records, versions/events, TTL, workflow, radial index, surfaces, dictionaries, and audit.
+It does not repair.
+The only allowed reconstruction concerns derived state and requires both copying and literal confirmation:
 
 ```powershell
 cargo run -p aprodb-cli --bin aprodb-ops -- repair .\source .\repaired `
   REBUILD_DERIVED_ON_SEPARATE_COPY --keyring .\keyring.json
 ```
 
-Il report JSON distingue record persi/dubbi e indici ricostruiti. Corruzione del
-record canonico o catalogo richiede restore; non viene nascosta né cancellata.
-Interruzioni lasciano la copia parziale per diagnosi e retry verso una nuova
-destinazione.
+The JSON report distinguishes lost or questionable records from reconstructed indexes.
+Corruption of the canonical record or catalog requires restore; it is neither hidden nor deleted.
+Interruptions leave the partial copy for diagnosis and allow retry to a new destination.
 
-### Import AProDB 0.1 e upgrade
+### Import AProDB 0.1 and upgrade
 
-Il motore 1.x rifiuta sempre directory con `aprodb.wal` o
-`aprodb.snapshot`. L'import è offline e richiede sorgente, copia preservata,
-destinazione e mapping dell'identità:
+The 1.x engine always rejects directories with `aprodb.wal` or `aprodb.snapshot`.
+Import is offline and requires source, preserved copy, destination, and identity mapping:
 
 ```powershell
 cargo run -p aprodb-cli --bin aprodb-ops -- import-0.1 `
@@ -1163,31 +861,63 @@ cargo run -p aprodb-cli --bin aprodb-ops -- import-0.1 `
   --max-source-bytes 17179869184 --batch-operations 256
 ```
 
-Il comando copia snapshot/WAL con checksum in `raw`, usa una seconda copia per
-il reader 0.1 (che può troncare solo una coda WAL incompleta), esporta con limiti
-di record/byte, scrive batch Durable in una directory di lavoro, verifica e
-rinomina. Delete già applicate non vengono importate; bytes, text, i64, f64 e
-vector f32 conservano il tipo. Sequence, timestamp, compressione e layout shard
-0.1 non hanno equivalente e vengono rigenerati. La sorgente viene ricontrollata
-durante la copia e deve essere offline.
+The command copies the snapshot and WAL into `raw` with checksums, uses a second copy for the 0.1 reader (which can only truncate an incomplete WAL tail), exports within record/byte limits, writes Durable batches in a work directory, verifies the result, and renames it.
+Deletes already applied are not imported; bytes, text, i64, f64, and vector f32 retain their type.
+Sequence, timestamp, compression, and 0.1 shard layout have no equivalent and are regenerated.
+The source is rechecked during the copy and must be offline.
 
-Il writer supporta formato logico 1; formati futuri sconosciuti vengono
-rifiutati. Finché non esiste una migrazione specifica, backup/restore e
-copy-and-verify costituiscono il solo piano di upgrade/rollback.
+The writer supports logical format 1; unknown future formats are rejected.
+Until a specific migration exists, backup/restore and copy-and-verify are the only upgrade/rollback plan.
 
-### Gate operativi e limiti
+### PostgreSQL validation import (public beta)
 
-Il test lungo `operability_long` è ignorato nella suite rapida perché esegue
-2.048 scritture Durable cifrate, quattro restore e rekey. Va eseguito con:
+`aprodb-pg-import` is a bounded, one-way validation and migration tool for creating a new AProDB
+directory from PostgreSQL base-table rows. The companion
+`scripts/import_postgres_over_ssh.ps1` wrapper runs the exporter in a read-only,
+repeatable-read transaction and streams JSONL to the local importer. Build a release binary for
+large trials and start with `-RowLimit` on a heterogeneous sample before approving a full copy.
+
+The stream contains explicit manifest, table, row, end-of-table, and completion frames. Exact JSON
+numbers are not converted through floating point. A table maps to one AProDB collection; primary-key
+identity is hashed with BLAKE3, while a table without a primary key uses snapshot `tableoid` plus
+`ctid` and is therefore suitable only for a one-time copy. The importer uses 16 partitions, bounded
+batches, and Durable writes by default. Canonical records and logical change events are committed
+atomically without duplicating the full payload in the event by default.
+
+The destination remains in a sibling `.importing-*` directory until the complete stream has been
+accepted, the logical database has been verified, the engine has been reopened, and verification has
+passed again. Publication is then a same-volume directory rename. Truncated input, inconsistent
+counts, an existing destination, budget exhaustion, failed verification, or failed reopen return an
+error without publishing the partial database. Interrupted staging data is retained for diagnosis;
+the beta importer cannot resume it and a retry must use a new destination.
+
+The completion summary reports tables, rows, logical bytes, committed batches, import duration,
+verified heads/events, and reopened heads/events. Duration is operational evidence, not a benchmark
+unless the binary, host, storage, source, and competing load are controlled and recorded. Default
+limits are a 17 MiB input frame, 32 MiB of buffered batches, 64 GiB of database data, 16 GiB of
+temporary compaction space, and an 8 GiB free-space reserve. Increase them only after checking the
+destination filesystem and the load imposed by a long source snapshot.
+
+The importer does not reproduce SQL indexes, constraints, triggers, views, sequences, permissions,
+or query semantics, and it is not change data capture. See
+[docs/postgresql-import.md](docs/postgresql-import.md) for the command, mapping, safety procedure,
+and the complete list of limitations.
+
+### Operational gates and limits
+
+The long test `operability_long` is ignored in the quick suite because it performs 2,048 encrypted
+Durable writes, four backup/restore cycles, and one rekey operation.
+It should be run using:
 
 ```powershell
 cargo test -p aprodb-engine --no-default-features --test operability_long -- `
   --ignored --exact repeated_encrypted_backup_restore_and_rekey_remain_consistent
-cargo package --workspace
+cargo package -p aprodb-types --allow-dirty
+cargo package --workspace --allow-dirty --no-verify
 ```
 
-Non sono disponibili KMS, restore online, repair canonico automatico, RBAC
-fine-grained per collection, audit remoto, metric exporter o replica. TLS,
-cifratura e backup sono meccanismi applicativi sperimentali e richiedono
-procedure periodiche di restore, gestione ACL e conservazione esterna delle
-chiavi. La replica della Milestone 8 resta fuori dall'implementazione iniziale.
+The single `aprodb-types` package verification passes, and the full workspace can be packaged with
+`--no-verify`. Full workspace package verification currently fails because unpublished internal
+path-and-version dependencies are resolved through crates.io; this does not affect GitHub publication.
+
+No KMS, online restore, automatic canonical repair, fine-grained RBAC for collections, remote audit, metrics exporter, or replication are available. TLS, encryption, and backup are experimental application mechanisms and require periodic restore procedures, ACL management, and external key storage. Replication for Milestone 8 remains outside the initial implementation.

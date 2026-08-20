@@ -124,11 +124,11 @@ impl GpuExecutor {
         let count: u32 = vectors
             .len()
             .try_into()
-            .map_err(|_| AproError::Gpu("troppi vettori per un dispatch GPU".into()))?;
+            .map_err(|_| AproError::Gpu("too many vectors for one GPU dispatch".into()))?;
         let dimension: u32 = query
             .len()
             .try_into()
-            .map_err(|_| AproError::Gpu("dimensione eccessiva per la GPU".into()))?;
+            .map_err(|_| AproError::Gpu("dimension is too large for the GPU".into()))?;
         let flat: Vec<f32> = vectors.iter().flatten().copied().collect();
         let params = Params {
             count,

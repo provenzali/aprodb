@@ -53,7 +53,7 @@ impl SecretToken {
         let token = token.into();
         if token.len() < 16 || token.len() > 4096 {
             return Err(ServerError::InvalidConfig(
-                "token deve contenere fra 16 e 4096 byte".into(),
+                "token must be between 16 and 4096 bytes in length".into(),
             ));
         }
         Ok(Self(token))
@@ -77,32 +77,38 @@ pub fn tls_server_config(
 ) -> Result<Arc<rustls::ServerConfig>, ServerError> {
     let certificates = rustls_pemfile::certs(&mut Cursor::new(certificate_pem))
         .collect::<std::io::Result<Vec<_>>>()
-        .map_err(|error| ServerError::InvalidConfig(format!("certificato TLS: {error}")))?;
+        .map_err(|error| ServerError::InvalidConfig(format!("TLS certificate: {error}")))?;
     if certificates.is_empty() {
         return Err(ServerError::InvalidConfig(
-            "catena certificati TLS vuota".into(),
+            "TLS certificate chain cannot be empty".into(),
         ));
     }
     let private_key = rustls_pemfile::private_key(&mut Cursor::new(private_key_pem))
-        .map_err(|error| ServerError::InvalidConfig(format!("chiave privata TLS: {error}")))?
-        .ok_or_else(|| ServerError::InvalidConfig("chiave privata TLS assente".into()))?;
+        .map_err(|error| ServerError::InvalidConfig(format!("TLS private key: {error}")))?
+        .ok_or_else(|| ServerError::InvalidConfig("TLS private key is missing".into()))?;
     let builder = rustls::ServerConfig::builder();
     let config = if let Some(client_ca_pem) = client_ca_pem {
         let mut roots = RootCertStore::empty();
         let client_roots = rustls_pemfile::certs(&mut Cursor::new(client_ca_pem))
             .collect::<std::io::Result<Vec<_>>>()
-            .map_err(|error| ServerError::InvalidConfig(format!("CA client TLS: {error}")))?;
+            .map_err(|error| ServerError::InvalidConfig(format!("TLS client CA: {error}")))?;
         if client_roots.is_empty() {
-            return Err(ServerError::InvalidConfig("CA client TLS vuota".into()));
+            return Err(ServerError::InvalidConfig(
+                "TLS client CA cannot be empty".into(),
+            ));
         }
         for certificate in client_roots {
             roots.add(certificate).map_err(|error| {
-                ServerError::InvalidConfig(format!("CA client TLS non valida: {error}"))
+                ServerError::InvalidConfig(format!("TLS client CA is invalid: {error}"))
             })?;
         }
         let verifier = WebPkiClientVerifier::builder(Arc::new(roots))
             .build()
-            .map_err(|error| ServerError::InvalidConfig(format!("verificatore mTLS: {error}")))?;
+            .map_err(|error| {
+                ServerError::InvalidConfig(format!(
+                    "mTLS client certificate verifier error: {error}"
+                ))
+            })?;
         builder
             .with_client_cert_verifier(verifier)
             .with_single_cert(certificates, private_key)
@@ -111,7 +117,7 @@ pub fn tls_server_config(
             .with_no_client_auth()
             .with_single_cert(certificates, private_key)
     }
-    .map_err(|error| ServerError::InvalidConfig(format!("identità TLS server: {error}")))?;
+    .map_err(|error| ServerError::InvalidConfig(format!("TLS server identity: {error}")))?;
     Ok(Arc::new(config))
 }
 
@@ -134,7 +140,7 @@ impl TenantQuota {
         ] {
             if value == 0 {
                 return Err(ServerError::InvalidConfig(format!(
-                    "quota tenant {name} deve essere positiva"
+                    "tenant quota {name} must be greater than zero"
                 )));
             }
         }
@@ -196,7 +202,7 @@ impl ServerConfig {
     fn validate(&self) -> Result<(), ServerError> {
         if self.admin_principal.is_empty() || self.admin_principal.len() > 128 {
             return Err(ServerError::InvalidConfig(
-                "admin_principal deve contenere 1..128 byte".into(),
+                "admin_principal must be between 1 and 128 bytes".into(),
             ));
         }
         if self.data_tcp.is_none()
@@ -205,7 +211,7 @@ impl ServerConfig {
             && self.local_admin.is_none()
         {
             return Err(ServerError::InvalidConfig(
-                "almeno un endpoint deve essere configurato".into(),
+                "at least one server endpoint must be configured".into(),
             ));
         }
         for (name, value) in [
@@ -219,18 +225,18 @@ impl ServerConfig {
         ] {
             if value == 0 {
                 return Err(ServerError::InvalidConfig(format!(
-                    "{name} deve essere positivo"
+                    "{name} must be greater than zero"
                 )));
             }
         }
         if self.max_inflight_per_connection > self.max_inflight_global {
             return Err(ServerError::InvalidConfig(
-                "inflight per connessione oltre il limite globale".into(),
+                "inflight requests per connection exceed the global limit".into(),
             ));
         }
         if self.response_queue_depth < self.max_inflight_per_connection {
             return Err(ServerError::InvalidConfig(
-                "coda risposte minore degli inflight per connessione".into(),
+                "response queue depth is less than inflight requests per connection".into(),
             ));
         }
         if self.idle_timeout.is_zero()
@@ -238,7 +244,7 @@ impl ServerConfig {
             || self.backpressure_retry_after.is_zero()
         {
             return Err(ServerError::InvalidConfig(
-                "timeout server deve essere positivo".into(),
+                "server timeout values must be greater than zero".into(),
             ));
         }
         let hello = ClientHello::new(EndpointRole::Data, Vec::new(), self.max_frame_bytes);
@@ -247,13 +253,13 @@ impl ServerConfig {
             .map_err(|error| ServerError::InvalidConfig(error.to_string()))?;
         if self.data_token.0 == self.admin_token.0 {
             return Err(ServerError::InvalidConfig(
-                "token data e admin devono essere distinti".into(),
+                "data and admin tokens must be different".into(),
             ));
         }
         for (tenant, quota) in &self.tenant_quotas {
             if tenant.is_empty() || tenant.len() > 128 {
                 return Err(ServerError::InvalidConfig(
-                    "identificatore tenant quota fuori da 1..128 byte".into(),
+                    "tenant quota identifier must be between 1 and 128 bytes in length".into(),
                 ));
             }
             quota.validate()?;
@@ -262,7 +268,7 @@ impl ServerConfig {
             for address in [self.data_tcp, self.admin_tcp].into_iter().flatten() {
                 if !address.ip().is_loopback() {
                     return Err(ServerError::InvalidConfig(format!(
-                        "TCP plaintext non loopback rifiutato: {address}"
+                        "non-loopback TCP plaintext connections are prohibited: {address}"
                     )));
                 }
             }
@@ -271,7 +277,7 @@ impl ServerConfig {
         for name in [&self.local_data, &self.local_admin].into_iter().flatten() {
             if !name.starts_with(r"\\.\pipe\") {
                 return Err(ServerError::InvalidConfig(
-                    "named pipe Windows deve iniziare con \\\\.\\pipe\\".into(),
+                    "Windows named pipe must begin with \\\\.\\pipe\\".into(),
                 ));
             }
         }
@@ -281,11 +287,11 @@ impl ServerConfig {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
-    #[error("configurazione server non valida: {0}")]
+    #[error("invalid server configuration: {0}")]
     InvalidConfig(String),
-    #[error("I/O server: {0}")]
+    #[error("server I/O error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("task server: {0}")]
+    #[error("server task error: {0}")]
     Task(String),
 }
 
@@ -363,23 +369,21 @@ impl TenantQuotaRuntime {
         if request_bytes > quota.max_request_bytes {
             return Err((
                 ErrorCode::ResourceLimit,
-                "quota byte richiesta tenant superata",
+                "tenant request byte quota exceeded",
             ));
         }
         if let Some(request::Operation::VectorSearch(operation)) = request.operation.as_ref() {
             let scan = usize::try_from(operation.max_scan_records).unwrap_or(usize::MAX);
             let work = operation.query.len().saturating_mul(scan);
             if work > quota.max_vector_work_items {
-                return Err((ErrorCode::ResourceLimit, "quota compute tenant superata"));
+                return Err((ErrorCode::ResourceLimit, "tenant compute quota exceeded"));
             }
         }
         let second = now_unix_ms().unwrap_or(u64::MAX) / 1_000;
-        let mut usage = self.usage.lock().map_err(|_| {
-            (
-                ErrorCode::Internal,
-                "contatore quota tenant non disponibile",
-            )
-        })?;
+        let mut usage = self
+            .usage
+            .lock()
+            .map_err(|_| (ErrorCode::Internal, "tenant quota counter not available"))?;
         let tenant_usage = usage.entry(tenant.to_vec()).or_default();
         if tenant_usage.window_second != second {
             tenant_usage.window_second = second;
@@ -388,13 +392,13 @@ impl TenantQuotaRuntime {
         if tenant_usage.requests_in_window >= quota.max_requests_per_second {
             return Err((
                 ErrorCode::Backpressure,
-                "quota richieste al secondo tenant raggiunta",
+                "tenant requests per second quota reached",
             ));
         }
         if tenant_usage.inflight >= quota.max_inflight {
             return Err((
                 ErrorCode::Backpressure,
-                "quota richieste inflight tenant raggiunta",
+                "tenant inflight requests quota reached",
             ));
         }
         tenant_usage.requests_in_window += 1;
@@ -526,7 +530,7 @@ impl ServerHandle {
                 Err(_) => {
                     join.abort();
                     return Err(ServerError::Task(format!(
-                        "drain oltre {:?}",
+                        "drain exceeded {:?}",
                         self.drain_timeout
                     )));
                 }
@@ -713,24 +717,24 @@ fn spawn_tls_connection(
                 let _ = handle_connection(stream, role, state, shutdown).await;
             }
             Ok(Err(_)) | Err(_) => {
-                state.metrics.auth_failures.fetch_add(1, Ordering::Relaxed);
+                state.metrics.auth_failures.fetch_add(1, Ordering::Relaxed); // Increment authentication failures metric when TLS accept fails.
             }
         }
     });
 }
 
-struct ActiveConnection(Arc<Metrics>);
+struct ActiveConnection(Arc<Metrics>); // Tracks active connections for metrics purposes.
 
 impl ActiveConnection {
     fn new(metrics: Arc<Metrics>) -> Self {
-        metrics.active_connections.fetch_add(1, Ordering::AcqRel);
+        metrics.active_connections.fetch_add(1, Ordering::AcqRel); // Increment active connection count
         Self(metrics)
     }
 }
 
 impl Drop for ActiveConnection {
     fn drop(&mut self) {
-        self.0.active_connections.fetch_sub(1, Ordering::AcqRel);
+        self.0.active_connections.fetch_sub(1, Ordering::AcqRel); // Decrement active connection count on drop
     }
 }
 
@@ -744,34 +748,37 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let codec = LengthDelimitedCodec::builder()
-        .max_frame_length(state.config.max_frame_bytes)
+        .max_frame_length(state.config.max_frame_bytes) // Set maximum frame size from config
         .new_codec();
     let mut framed = Framed::new(stream, codec);
     let frame = match timeout(state.config.idle_timeout, framed.next()).await {
+        // Wait for initial frame within idle timeout
         Ok(Some(Ok(frame))) => frame,
         Ok(Some(Err(error))) => return Err(ServerError::Io(error)),
         Ok(None) | Err(_) => return Ok(()),
     };
     let hello = match decode_limited::<ClientHello>(&frame, state.config.max_frame_bytes) {
+        // Decode and validate ClientHello message
         Ok(hello) => hello,
         Err(error) => {
-            send_hello_rejection(&mut framed, ErrorCode::InvalidRequest, error.to_string()).await?;
+            send_hello_rejection(&mut framed, ErrorCode::InvalidRequest, error.to_string()).await?; // Reject invalid ClientHello
             return Ok(());
         }
     };
     let role = match hello.validate() {
         Ok(role) => role,
         Err(error) => {
-            send_hello_rejection(&mut framed, ErrorCode::Incompatible, error.to_string()).await?;
+            send_hello_rejection(&mut framed, ErrorCode::Incompatible, error.to_string()).await?; // Reject incompatible ClientHello version
             return Ok(());
         }
     };
     if role != endpoint_role {
+        // Ensure client role matches expected endpoint role
         state.metrics.auth_failures.fetch_add(1, Ordering::Relaxed);
         send_hello_rejection(
             &mut framed,
             ErrorCode::Unauthorized,
-            "ruolo non ammesso sull'endpoint",
+            "role not authorized on this endpoint",
         )
         .await?;
         return Ok(());
@@ -781,44 +788,45 @@ where
         EndpointRole::Admin => state.config.admin_token.matches(&hello.auth_token),
     };
     if !authorized {
+        // Check token authorization for specified role
         state.metrics.auth_failures.fetch_add(1, Ordering::Relaxed);
         send_hello_rejection(
             &mut framed,
             ErrorCode::Unauthenticated,
-            "credenziali non valide",
+            "invalid credentials provided",
         )
         .await?;
         return Ok(());
     }
-    let negotiated_max = (hello.max_frame_bytes as usize).min(state.config.max_frame_bytes);
+    let negotiated_max = (hello.max_frame_bytes as usize).min(state.config.max_frame_bytes); // Negotiate max frame size to use
     framed
         .send(encode_limited(
-            &ServerHello::accepted(negotiated_max),
+            &ServerHello::accepted(negotiated_max), // Send acceptance with negotiated max frame size
             state.config.max_frame_bytes,
         )?)
         .await?;
 
-    let (sink, mut stream) = framed.split();
-    let (responses, receiver) = mpsc::channel(state.config.response_queue_depth);
-    let writer = tokio::spawn(response_writer(sink, receiver, negotiated_max));
-    let connection_inflight = Arc::new(Semaphore::new(state.config.max_inflight_per_connection));
-    let request_ids = Arc::new(Mutex::new(HashSet::new()));
-    let mut requests = JoinSet::new();
+    let (sink, mut stream) = framed.split(); // Split framing into sink and stream for reading and writing
+    let (responses, receiver) = mpsc::channel(state.config.response_queue_depth); // Channel for sending response messages
+    let writer = tokio::spawn(response_writer(sink, receiver, negotiated_max)); // Spawn task for writing responses
+    let connection_inflight = Arc::new(Semaphore::new(state.config.max_inflight_per_connection)); // Semaphore to limit concurrent inflight requests per connection
+    let request_ids = Arc::new(Mutex::new(HashSet::new())); // Track active request IDs to avoid duplicates
+    let mut requests = JoinSet::new(); // Set to manage concurrent request tasks
 
     loop {
         tokio::select! {
-            changed = shutdown.changed() => {
+            changed = shutdown.changed() => { // Check for shutdown signal
                 if changed.is_err() || *shutdown.borrow() { break; }
             }
-            next = timeout(state.config.idle_timeout, stream.next()) => {
+            next = timeout(state.config.idle_timeout, stream.next()) => { // Wait for next request frame with idle timeout
                 let frame = match next {
                     Ok(Some(Ok(frame))) => frame,
-                    Ok(Some(Err(_))) | Ok(None) | Err(_) => break,
+                    Ok(Some(Err(_))) | Ok(None) | Err(_) => break, // Close connection on read errors or timeout
                 };
                 let request_bytes = frame.len();
                 let request = match decode_limited::<Request>(&frame, negotiated_max) {
                     Ok(request) => request,
-                    Err(error) => {
+                    Err(error) => { // Reject malformed requests
                         state.metrics.rejected_requests.fetch_add(1, Ordering::Relaxed);
                         let _ = responses.send(Response::error(
                             0,
@@ -829,7 +837,7 @@ where
                     }
                 };
                 if let Err(error) = request.validate() {
-                    state.metrics.rejected_requests.fetch_add(1, Ordering::Relaxed);
+                    state.metrics.rejected_requests.fetch_add(1, Ordering::Relaxed); // Reject requests failing validation
                     let _ = responses.send(Response::error(
                         request.request_id,
                         ErrorCode::InvalidRequest,
@@ -837,24 +845,25 @@ where
                     )).await;
                     continue;
                 }
-                if !role_allows(endpoint_role, request.operation.as_ref().expect("validata")) {
+                if !role_allows(endpoint_role, request.operation.as_ref().expect("validata")) { // Check if operation is permitted for endpoint role
                     state.metrics.rejected_requests.fetch_add(1, Ordering::Relaxed);
                     let _ = responses.send(Response::error(
                         request.request_id,
                         ErrorCode::Unauthorized,
-                        "operazione non ammessa sull'endpoint",
+                        "operation not allowed on this endpoint",
                     )).await;
                     continue;
                 }
-                if request.deadline_unix_ms == 0 || deadline_expired(request.deadline_unix_ms) {
+                if request.deadline_unix_ms == 0 || deadline_expired(request.deadline_unix_ms) { // Reject requests with expired or missing deadlines
                     state.metrics.rejected_requests.fetch_add(1, Ordering::Relaxed);
                     let _ = responses.send(Response::error(
                         request.request_id,
                         ErrorCode::DeadlineExceeded,
-                        "deadline scaduta prima dell'ammissione",
+                        "deadline expired before admission",
                     )).await;
                     continue;
                 }
+                // Enforce tenant quota limits for data endpoints
                 let tenant_quota_permit = if endpoint_role == EndpointRole::Data {
                     if let Some(quota) = state.config.tenant_quotas.get(&request.tenant) {
                         match state.tenant_quota_runtime.try_acquire(
@@ -885,52 +894,58 @@ where
                 } else {
                     None
                 };
+                // Acquire permit to enforce inflight request limit per connection
                 let connection_permit = match Arc::clone(&connection_inflight).try_acquire_owned() {
                     Ok(permit) => permit,
                     Err(_) => {
                         state.metrics.rejected_requests.fetch_add(1, Ordering::Relaxed);
                         let _ = responses.send(Response::backpressure(
                             request.request_id,
-                            "limite inflight connessione raggiunto",
+                            "connection inflight limit reached",
                             retry_after_ms(state.config.backpressure_retry_after),
                         )).await;
                         continue;
                     }
                 };
+                // Acquire permit to enforce global inflight request limit
                 let global_permit = match Arc::clone(&state.global_inflight).try_acquire_owned() {
                     Ok(permit) => permit,
                     Err(_) => {
                         state.metrics.rejected_requests.fetch_add(1, Ordering::Relaxed);
                         let _ = responses.send(Response::backpressure(
                             request.request_id,
-                            "limite inflight globale raggiunto",
+                            "global inflight limit reached",
                             retry_after_ms(state.config.backpressure_retry_after),
                         )).await;
                         continue;
                     }
                 };
                 {
+                    // Ensure request ID is unique among inflight requests
                     let mut ids = request_ids.lock().await;
                     if !ids.insert(request.request_id) {
                         drop(ids);
                         let _ = responses.send(Response::error(
                             request.request_id,
                             ErrorCode::InvalidRequest,
-                            "request_id duplicato in volo",
+                            "duplicate request_id in flight",
                         )).await;
                         continue;
                     }
                 }
+                // Spawn a task to process the request asynchronously
                 let task_state = Arc::clone(&state);
                 let task_responses = responses.clone();
                 let task_ids = Arc::clone(&request_ids);
                 requests.spawn(async move {
+                    // Holds permits to enforce limits until request completes
                     let _tenant_quota_permit = tenant_quota_permit;
                     let _connection_permit = connection_permit;
                     let _global_permit = global_permit;
                     let _inflight = InflightRequest::new(Arc::clone(&task_state.metrics));
                     let request_id = request.request_id;
                     let dispatch_state = Arc::clone(&task_state);
+                    // Run dispatch logic in blocking thread
                     let result = tokio::task::spawn_blocking(move || {
                         dispatch(&dispatch_state, request)
                     }).await;
@@ -941,17 +956,21 @@ where
                             false,
                         ),
                     };
+                    // Send response back
                     let _ = task_responses.send(response).await;
+                    // Remove request ID from active set
                     task_ids.lock().await.remove(&request_id);
                     if should_shutdown {
-                        task_state.shutdown.send_replace(true);
+                        task_state.shutdown.send_replace(true); // Signal server shutdown if requested
                     }
                 });
             }
         }
     }
+    // Wait for all spawned request tasks to complete
     while requests.join_next().await.is_some() {}
-    drop(responses);
+    drop(responses); // Close the response channel
+    // Await response writer task and propagate errors
     writer
         .await
         .map_err(|error| ServerError::Task(error.to_string()))??;
@@ -1081,16 +1100,12 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
         Ok(durability) => Durability::from(durability),
         Err(_) => {
             return (
-                Response::error(
-                    request_id,
-                    ErrorCode::InvalidRequest,
-                    "durability sconosciuta",
-                ),
+                Response::error(request_id, ErrorCode::InvalidRequest, "unknown durability"),
                 false,
             );
         }
     };
-    let operation = request.operation.expect("richiesta validata");
+    let operation = request.operation.expect("validated request");
     let audit = admin_audit(&operation, &request.tenant, &request.namespace);
     if let Some(audit) = audit
         && let Err(error) = state.engine.append_audit_event(
@@ -1120,7 +1135,7 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
         }),
         request::Operation::Get(operation) => operation
             .key
-            .ok_or_else(|| AproError::InvalidInput("chiave Get assente".into()))
+            .ok_or_else(|| AproError::InvalidInput("missing Get key".into()))
             .and_then(|key| {
                 identity_from_wire(request.tenant, request.namespace, key)
                     .map_err(|error| AproError::InvalidInput(error.to_string()))
@@ -1175,14 +1190,14 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
         request::Operation::Shutdown(_) => Ok(Response::ok(request_id)),
         request::Operation::ExplainPlacement(operation) => operation
             .key
-            .ok_or_else(|| AproError::InvalidInput("chiave ExplainPlacement assente".into()))
+            .ok_or_else(|| AproError::InvalidInput("ExplainPlacement key missing".into()))
             .and_then(|key| {
                 identity_from_wire(request.tenant, request.namespace, key)
                     .map_err(|error| AproError::InvalidInput(error.to_string()))
             })
             .and_then(|identity| {
                 now_unix_ms()
-                    .ok_or_else(|| AproError::InvalidInput("orologio UTC non disponibile".into()))
+                    .ok_or_else(|| AproError::InvalidInput("UTC clock unavailable".into()))
                     .and_then(|now| state.engine.explain_placement(&identity, now))
             })
             .map(|placement| {
@@ -1216,7 +1231,7 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
             })
         }
         request::Operation::Expire(operation) => usize::try_from(operation.limit)
-            .map_err(|_| AproError::ResourceLimit("limite Expire oltre usize".into()))
+            .map_err(|_| AproError::ResourceLimit("Expire limit exceeds usize".into()))
             .and_then(|limit| state.engine.expire_due(limit, durability))
             .map(|report| {
                 let mut response = Response::ok(request_id);
@@ -1241,7 +1256,7 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
         }),
         request::Operation::Claim(operation) => operation
             .scope
-            .ok_or_else(|| AproError::InvalidInput("scope Claim assente".into()))
+            .ok_or_else(|| AproError::InvalidInput("missing Claim scope".into()))
             .and_then(|scope| {
                 Ok(ClaimRequest {
                     scope: WorkflowScope::new(
@@ -1251,7 +1266,7 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
                         scope.partition,
                     )?,
                     max_records: usize::try_from(operation.max_records).map_err(|_| {
-                        AproError::ResourceLimit("max_records Claim oltre usize".into())
+                        AproError::ResourceLimit("Claim max_records exceeds usize".into())
                     })?,
                     lease_duration: Duration::from_millis(operation.lease_duration_ms),
                     idempotency_key_hash: optional_hash(operation.idempotency_key_hash)?,
@@ -1293,7 +1308,7 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
         ),
         request::Operation::Fail(operation) => operation
             .lease
-            .ok_or_else(|| AproError::InvalidInput("lease Fail assente".into()))
+            .ok_or_else(|| AproError::InvalidInput("missing Fail lease".into()))
             .and_then(|lease| {
                 dispatch_lease_operation(
                     &state.engine,
@@ -1307,7 +1322,7 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
             }),
         request::Operation::Publish(operation) => operation
             .key
-            .ok_or_else(|| AproError::InvalidInput("chiave Publish assente".into()))
+            .ok_or_else(|| AproError::InvalidInput("missing Publish key".into()))
             .and_then(|key| {
                 identity_from_wire(request.tenant, request.namespace, key)
                     .map_err(|error| AproError::InvalidInput(error.to_string()))
@@ -1321,7 +1336,7 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
             })
             .map(|result| workflow_response(request_id, result)),
         request::Operation::SubscribeChanges(operation) => usize::try_from(operation.limit)
-            .map_err(|_| AproError::ResourceLimit("limite change stream oltre usize".into()))
+            .map_err(|_| AproError::ResourceLimit("change-stream limit exceeds usize".into()))
             .and_then(|limit| {
                 state
                     .engine
@@ -1352,12 +1367,12 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
             .surface_definition(&operation.projection_id)
             .and_then(|definition| {
                 let definition = definition
-                    .ok_or_else(|| AproError::InvalidInput("superficie non presente".into()))?;
+                    .ok_or_else(|| AproError::InvalidInput("surface not found".into()))?;
                 if definition.source_tenant != request.tenant
                     || definition.source_namespace != request.namespace
                 {
                     return Err(AproError::InvalidInput(
-                        "superficie fuori dallo scope richiesto".into(),
+                        "surface outside requested scope".into(),
                     ));
                 }
                 state.engine.read_surface(&operation.projection_id)
@@ -1369,7 +1384,7 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
             }),
         request::Operation::CreateSurface(operation) => operation
             .definition
-            .ok_or_else(|| AproError::InvalidInput("definizione superficie assente".into()))
+            .ok_or_else(|| AproError::InvalidInput("surface definition missing".into()))
             .and_then(engine_surface_definition)
             .and_then(|definition| state.engine.create_surface(definition))
             .map(|()| Response::ok(request_id)),
@@ -1424,7 +1439,7 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
         request::Operation::ConfigureCompression(operation) => {
             let policy = operation
                 .policy
-                .ok_or_else(|| AproError::InvalidInput("policy compressione assente".into()))
+                .ok_or_else(|| AproError::InvalidInput("compression policy missing".into()))
                 .and_then(compression_policy_from_wire);
             collection_identity(request.tenant, request.namespace, operation.collection)
                 .and_then(|identity| policy.map(|policy| (identity, policy)))
@@ -1453,9 +1468,9 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(|error| AproError::InvalidInput(error.to_string()));
             let max_dictionary_bytes = usize::try_from(max_dictionary_bytes)
-                .map_err(|_| AproError::ResourceLimit("dimensione dizionario oltre usize".into()));
+                .map_err(|_| AproError::ResourceLimit("dictionary size exceeds usize".into()));
             let minimum_validation_gain_bytes = usize::try_from(minimum_validation_gain_bytes)
-                .map_err(|_| AproError::ResourceLimit("gain dizionario oltre usize".into()));
+                .map_err(|_| AproError::ResourceLimit("dictionary gain exceeds usize".into()));
             collection_identity(request.tenant, request.namespace, collection)
                 .and_then(|identity| {
                     Ok((
@@ -1533,7 +1548,7 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
             })
         }
         request::Operation::AuditList(operation) => usize::try_from(operation.limit)
-            .map_err(|_| AproError::ResourceLimit("limit AuditList oltre usize".into()))
+            .map_err(|_| AproError::ResourceLimit("AuditList limit exceeds usize".into()))
             .and_then(|limit| {
                 state.engine.read_audit(
                     operation
@@ -1566,7 +1581,7 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
             .config
             .backup_root
             .as_ref()
-            .ok_or_else(|| AproError::Unsupported("backup online non configurato".into()))
+            .ok_or_else(|| AproError::Unsupported("online backup not configured".into()))
             .and_then(|root| state.engine.create_backup(root.join(&operation.name)))
             .map(|backup| {
                 let mut response = Response::ok(request_id);
@@ -1584,23 +1599,21 @@ fn dispatch(state: &State, request: Request) -> (Response, bool) {
             let metric = match WireVectorMetric::try_from(operation.metric) {
                 Ok(WireVectorMetric::Dot) => Ok(VectorMetric::Dot),
                 Ok(WireVectorMetric::Cosine) => Ok(VectorMetric::Cosine),
-                Err(_) => Err(AproError::InvalidInput("vector metric sconosciuta".into())),
+                Err(_) => Err(AproError::InvalidInput("unknown vector metric".into())),
             };
             let preference = match WireComputePreference::try_from(operation.preference) {
                 Ok(WireComputePreference::Cpu) => Ok(ComputePreference::Cpu),
                 Ok(WireComputePreference::Accelerator) => Ok(ComputePreference::Accelerator),
                 Ok(WireComputePreference::Auto) => Ok(ComputePreference::Auto),
-                Err(_) => Err(AproError::InvalidInput(
-                    "compute preference sconosciuta".into(),
-                )),
+                Err(_) => Err(AproError::InvalidInput("unknown compute preference".into())),
             };
             usize::try_from(operation.limit)
-                .map_err(|_| AproError::ResourceLimit("limit VectorSearch oltre usize".into()))
+                .map_err(|_| AproError::ResourceLimit("VectorSearch limit exceeds usize".into()))
                 .and_then(|limit| {
                     Ok((
                         limit,
                         usize::try_from(operation.max_scan_records).map_err(|_| {
-                            AproError::ResourceLimit("max_scan_records oltre usize".into())
+                            AproError::ResourceLimit("max_scan_records exceeds usize".into())
                         })?,
                         metric?,
                         preference?,
@@ -1709,9 +1722,9 @@ fn wire_compression_tier(
         } as i32,
         zstd_level: policy.zstd_level,
         min_input_bytes: u64::try_from(policy.min_input_bytes)
-            .map_err(|_| AproError::ResourceLimit("min_input compressione oltre u64".into()))?,
+            .map_err(|_| AproError::ResourceLimit("compression min_input exceeds u64".into()))?,
         min_savings_bytes: u64::try_from(policy.min_savings_bytes)
-            .map_err(|_| AproError::ResourceLimit("min_savings compressione oltre u64".into()))?,
+            .map_err(|_| AproError::ResourceLimit("compression min_savings exceeds u64".into()))?,
         dictionary_id: policy.dictionary_id,
     })
 }
@@ -1734,22 +1747,22 @@ fn compression_tier_from_wire(
     name: &str,
 ) -> aprodb_types::Result<CompressionTierPolicy> {
     let policy = policy
-        .ok_or_else(|| AproError::InvalidInput(format!("compression tier {name} assente")))?;
+        .ok_or_else(|| AproError::InvalidInput(format!("compression tier {name} missing")))?;
     Ok(CompressionTierPolicy {
         mode: match WireCompressionMode::try_from(policy.mode) {
             Ok(WireCompressionMode::Raw) => CompressionMode::Raw,
             Ok(WireCompressionMode::AdaptiveZstandard) => CompressionMode::AdaptiveZstandard,
             Err(_) => {
                 return Err(AproError::InvalidInput(format!(
-                    "compression mode {name} sconosciuto"
+                    "unknown compression mode {name}"
                 )));
             }
         },
         zstd_level: policy.zstd_level,
         min_input_bytes: usize::try_from(policy.min_input_bytes)
-            .map_err(|_| AproError::ResourceLimit(format!("min_input {name} oltre usize")))?,
+            .map_err(|_| AproError::ResourceLimit(format!("min_input {name} exceeds usize")))?,
         min_savings_bytes: usize::try_from(policy.min_savings_bytes)
-            .map_err(|_| AproError::ResourceLimit(format!("min_savings {name} oltre usize")))?,
+            .map_err(|_| AproError::ResourceLimit(format!("min_savings {name} exceeds usize")))?,
         dictionary_id: policy.dictionary_id,
     })
 }
@@ -1800,12 +1813,12 @@ fn put_request_from_wire(
         namespace,
         operation
             .key
-            .ok_or_else(|| AproError::InvalidInput("chiave Put assente".into()))?,
+            .ok_or_else(|| AproError::InvalidInput("missing Put key".into()))?,
     )
     .map_err(|error| AproError::InvalidInput(error.to_string()))?;
     let payload = operation
         .payload
-        .ok_or_else(|| AproError::InvalidInput("payload Put assente".into()))?
+        .ok_or_else(|| AproError::InvalidInput("missing Put payload".into()))?
         .try_into()
         .map_err(|error: aprodb_proto::ProtocolError| AproError::InvalidInput(error.to_string()))?;
     let mut put = PutRequest::new(identity, payload);
@@ -1830,7 +1843,7 @@ fn dispatch_delete(
         namespace,
         operation
             .key
-            .ok_or_else(|| AproError::InvalidInput("chiave Delete assente".into()))?,
+            .ok_or_else(|| AproError::InvalidInput("missing Delete key".into()))?,
     )
     .map_err(|error| AproError::InvalidInput(error.to_string()))?;
     let delete = DeleteRequest {
@@ -1856,12 +1869,12 @@ fn wire_mutation(
                 namespace,
                 operation
                     .key
-                    .ok_or_else(|| AproError::InvalidInput("chiave Put assente".into()))?,
+                    .ok_or_else(|| AproError::InvalidInput("missing Put key".into()))?,
             )
             .map_err(|error| AproError::InvalidInput(error.to_string()))?;
             let payload = operation
                 .payload
-                .ok_or_else(|| AproError::InvalidInput("payload Put assente".into()))?
+                .ok_or_else(|| AproError::InvalidInput("missing Put payload".into()))?
                 .try_into()
                 .map_err(|error: aprodb_proto::ProtocolError| {
                     AproError::InvalidInput(error.to_string())
@@ -1881,7 +1894,7 @@ fn wire_mutation(
                 namespace,
                 operation
                     .key
-                    .ok_or_else(|| AproError::InvalidInput("chiave Delete assente".into()))?,
+                    .ok_or_else(|| AproError::InvalidInput("missing Delete key".into()))?,
             )
             .map_err(|error| AproError::InvalidInput(error.to_string()))?;
             Ok(EngineMutation::Delete(DeleteRequest {
@@ -1891,7 +1904,7 @@ fn wire_mutation(
                 delta: (!operation.delta.is_empty()).then_some(operation.delta),
             }))
         }
-        None => Err(AproError::InvalidInput("mutazione batch vuota".into())),
+        None => Err(AproError::InvalidInput("empty batch mutation".into())),
     }
 }
 
@@ -1902,7 +1915,7 @@ fn optional_hash(bytes: Vec<u8>) -> aprodb_types::Result<Option<[u8; 32]>> {
     bytes
         .try_into()
         .map(Some)
-        .map_err(|_| AproError::InvalidInput("idempotency hash non lungo 32 byte".into()))
+        .map_err(|_| AproError::InvalidInput("idempotency hash not 32 bytes long".into()))
 }
 
 #[derive(Clone, Copy)]
@@ -1926,14 +1939,14 @@ fn dispatch_lease_operation(
         namespace,
         operation
             .key
-            .ok_or_else(|| AproError::InvalidInput("chiave lease assente".into()))?,
+            .ok_or_else(|| AproError::InvalidInput("missing lease key".into()))?,
     )
     .map_err(|error| AproError::InvalidInput(error.to_string()))?;
     let lease = LeaseProof {
         lease_id: operation
             .lease_id
             .try_into()
-            .map_err(|_| AproError::InvalidInput("lease id non lungo 16 byte".into()))?,
+            .map_err(|_| AproError::InvalidInput("lease ID not 16 bytes long".into()))?,
         fencing_token: operation.fencing_token,
     };
     let idempotency = optional_hash(operation.idempotency_key_hash)?;
@@ -1966,12 +1979,12 @@ fn engine_surface_definition(
     let kind = match WireSurfaceKind::try_from(definition.kind) {
         Ok(WireSurfaceKind::Work) => SurfaceKind::Work,
         Ok(WireSurfaceKind::Read) => SurfaceKind::Read,
-        Err(_) => return Err(AproError::InvalidInput("surface kind sconosciuto".into())),
+        Err(_) => return Err(AproError::InvalidInput("unknown surface kind".into())),
     };
     let format = match WireSurfaceFormat::try_from(definition.format) {
         Ok(WireSurfaceFormat::AprodbRecords) => SurfaceFormat::AprodbRecords,
         Ok(WireSurfaceFormat::Json) => SurfaceFormat::Json,
-        Err(_) => return Err(AproError::InvalidInput("surface format sconosciuto".into())),
+        Err(_) => return Err(AproError::InvalidInput("unknown surface format".into())),
     };
     Ok(SurfaceDefinition {
         id: definition.id,
@@ -1981,12 +1994,14 @@ fn engine_surface_definition(
         source_collection: definition.source_collection,
         workflow_states: definition.workflow_states,
         format,
-        max_records: usize::try_from(definition.max_records)
-            .map_err(|_| AproError::ResourceLimit("max_records superficie oltre usize".into()))?,
-        max_bytes: usize::try_from(definition.max_bytes)
-            .map_err(|_| AproError::ResourceLimit("max_bytes superficie oltre usize".into()))?,
+        max_records: usize::try_from(definition.max_records).map_err(|_| {
+            AproError::ResourceLimit("surface max_records exceeds usize limit".into())
+        })?,
+        max_bytes: usize::try_from(definition.max_bytes).map_err(|_| {
+            AproError::ResourceLimit("surface max_bytes exceeds usize limit".into())
+        })?,
         retained_generations: usize::try_from(definition.retained_generations).map_err(|_| {
-            AproError::ResourceLimit("retained_generations superficie oltre usize".into())
+            AproError::ResourceLimit("surface retained_generations exceeds usize limit".into())
         })?,
     })
 }
@@ -2022,7 +2037,7 @@ fn dispatch_surface_build(
         engine.build_surface_incremental(
             &operation.projection_id,
             usize::try_from(operation.max_events)
-                .map_err(|_| AproError::ResourceLimit("max_events oltre usize".into()))?,
+                .map_err(|_| AproError::ResourceLimit("max_events exceeds usize limit".into()))?,
             durability,
         )?
     };
@@ -2046,8 +2061,8 @@ fn engine_expected(expected: Option<ExpectedVersion>) -> aprodb_types::Result<En
         Ok(ExpectedMode::Exact) => expected
             .version
             .map(|version| EngineExpected::Exact(version.into()))
-            .ok_or_else(|| AproError::InvalidInput("expected Exact senza versione".into())),
-        Err(_) => Err(AproError::InvalidInput("expected mode sconosciuto".into())),
+            .ok_or_else(|| AproError::InvalidInput("expected Exact mode without version".into())),
+        Err(_) => Err(AproError::InvalidInput("unknown expected mode".into())),
     }
 }
 

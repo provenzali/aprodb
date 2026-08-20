@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Andrea Provenzali"]
 license = "Apache-2.0"
 repository = "https://github.com/provenzali/aprodb"
-description = "Tipi logici e codec versionati di AProDB"
+description = "Versioned logical types and codecs for AProDB"
 
 [dependencies]
 bincode = { version = "2.0", features = ["serde"] }

@@ -32,7 +32,7 @@ impl ProjectionDescriptor {
     pub fn validate(&self) -> Result<()> {
         if self.projection_id.is_empty() || self.projection_id.len() > 128 {
             return Err(AproError::InvalidInput(
-                "projection id compute deve contenere 1..128 byte".into(),
+                "compute projection ID must be between 1 and 128 bytes long".into(),
             ));
         }
         Ok(())
@@ -61,13 +61,13 @@ impl ColumnarF32Batch {
     pub fn from_rows(rows: &[Option<Vec<f32>>], width: usize) -> Result<Self> {
         if width == 0 {
             return Err(AproError::InvalidInput(
-                "la larghezza colonnare deve essere positiva".into(),
+                "columnar width must be positive".into(),
             ));
         }
         let value_count = rows
             .len()
             .checked_mul(width)
-            .ok_or_else(|| AproError::ResourceLimit("batch colonnare troppo grande".into()))?;
+            .ok_or_else(|| AproError::ResourceLimit("columnar batch too large".into()))?;
         let mut values = Vec::with_capacity(value_count);
         let mut validity = vec![0u32; rows.len().div_ceil(32)];
         for (row_index, row) in rows.iter().enumerate() {
@@ -75,7 +75,7 @@ impl ColumnarF32Batch {
                 Some(row) => {
                     if row.len() != width || row.iter().any(|value| !value.is_finite()) {
                         return Err(AproError::InvalidInput(
-                            "riga colonnare non finita o di dimensione errata".into(),
+                            "columnar row is either non-finite or has an incorrect size".into(),
                         ));
                     }
                     values.extend_from_slice(row);
@@ -96,13 +96,13 @@ impl ColumnarF32Batch {
         let width = batches.first().map_or(1, |batch| batch.width);
         if batches.iter().any(|batch| batch.width != width) {
             return Err(AproError::InvalidInput(
-                "micro-batch con larghezze incompatibili".into(),
+                "micro-batches have incompatible widths".into(),
             ));
         }
         let rows = batches.iter().try_fold(0usize, |total, batch| {
-            total
-                .checked_add(batch.rows)
-                .ok_or_else(|| AproError::ResourceLimit("righe micro-batch oltre usize".into()))
+            total.checked_add(batch.rows).ok_or_else(|| {
+                AproError::ResourceLimit("micro-batch rows exceed usize limit".into())
+            })
         })?;
         let mut materialized = Vec::with_capacity(rows);
         for batch in batches {
@@ -220,14 +220,14 @@ impl CpuPool {
     pub fn new(threads: usize) -> Result<Self> {
         if threads == 0 || threads > 256 {
             return Err(AproError::InvalidInput(
-                "thread pool CPU deve contenere 1..256 thread".into(),
+                "CPU thread pool must have between 1 and 256 threads".into(),
             ));
         }
         let pool = ThreadPoolBuilder::new()
             .num_threads(threads)
             .thread_name(|index| format!("aprodb-compute-cpu-{index}"))
             .build()
-            .map_err(|error| AproError::Compute(format!("thread pool CPU: {error}")))?;
+            .map_err(|error| AproError::Compute(format!("CPU thread pool error: {error}")))?;
         Ok(Self {
             pool,
             name: format!("cpu-pool-{threads}"),
@@ -437,7 +437,7 @@ impl SchedulerConfig {
             || self.vram_budget_bytes == 0
         {
             return Err(AproError::InvalidInput(
-                "configurazione scheduler compute non valida".into(),
+                "invalid compute scheduler configuration".into(),
             ));
         }
         Ok(())
@@ -629,7 +629,7 @@ impl ComputeScheduler {
                 self.cpu.as_ref(),
                 &request,
                 ComputeExecution::CpuFallback,
-                Some("binario CPU-only o accelerator non configurato".into()),
+                Some("CPU-only build or accelerator not configured".into()),
                 CostEstimate::default(),
                 &self.counters,
             );
@@ -650,7 +650,7 @@ impl ComputeScheduler {
                 self.cpu.as_ref(),
                 &request,
                 ComputeExecution::CpuFallback,
-                Some("budget byte accelerator esaurito".into()),
+                Some("accelerator byte budget exhausted".into()),
                 CostEstimate::default(),
                 &self.counters,
             );
@@ -668,7 +668,7 @@ impl ComputeScheduler {
         match self
             .sender
             .as_ref()
-            .ok_or_else(|| AproError::Compute("scheduler arrestato".into()))?
+            .ok_or_else(|| AproError::Compute("scheduler stopped".into()))?
             .try_send(scheduled)
         {
             Ok(()) => match response_receiver.recv_timeout(self.config.request_timeout) {
@@ -681,7 +681,7 @@ impl ComputeScheduler {
                         self.cpu.as_ref(),
                         &fallback_request,
                         ComputeExecution::CpuFallback,
-                        Some("timeout scheduler accelerator".into()),
+                        Some("accelerator scheduler timeout".into()),
                         CostEstimate::default(),
                         &self.counters,
                     )
@@ -695,14 +695,14 @@ impl ComputeScheduler {
                     self.cpu.as_ref(),
                     &scheduled.request,
                     ComputeExecution::CpuFallback,
-                    Some("coda accelerator piena".into()),
+                    Some("accelerator queue full".into()),
                     CostEstimate::default(),
                     &self.counters,
                 )
             }
-            Err(TrySendError::Disconnected(_)) => Err(AproError::Compute(
-                "worker accelerator non disponibile".into(),
-            )),
+            Err(TrySendError::Disconnected(_)) => {
+                Err(AproError::Compute("accelerator worker unavailable".into()))
+            }
         }
     }
 
@@ -830,23 +830,23 @@ fn execute_micro_batch(
         .any(|request| request.request.preference == ComputePreference::Accelerator);
     let mut fallback_reason = None;
     let use_accelerator = if accelerator.is_none() {
-        fallback_reason = Some("feature o dispositivo accelerator non disponibile".into());
+        fallback_reason = Some("accelerator feature or device is unavailable".into());
         false
     } else if !circuit.lock().allows(Instant::now()) {
         counters
             .circuit_open_rejections
             .fetch_add(1, AtomicOrdering::Relaxed);
-        fallback_reason = Some("circuit breaker accelerator in cooldown".into());
+        fallback_reason = Some("accelerator circuit breaker is cooling down".into());
         false
     } else if !forced && estimate.accelerator_total_micros >= estimate.cpu_compute_micros {
-        fallback_reason = Some("costo totale accelerator non inferiore alla CPU".into());
+        fallback_reason = Some("total accelerator cost is not less than CPU".into());
         false
     } else {
         true
     };
 
     if use_accelerator {
-        let backend = accelerator.expect("presenza verificata");
+        let backend = accelerator.expect("presence verified");
         match backend.score_accelerated(&combined, query, metric, projection) {
             Ok(scores) if scores.len() == combined.rows() => {
                 circuit.lock().success();
@@ -864,8 +864,7 @@ fn execute_micro_batch(
                 return;
             }
             Ok(_) => {
-                fallback_reason =
-                    Some("accelerator ha restituito un numero di righe errato".into());
+                fallback_reason = Some("accelerator returned incorrect number of rows".into());
             }
             Err(error) => {
                 fallback_reason = Some(error.to_string());
@@ -918,7 +917,7 @@ fn distribute_results(
             })
         } else {
             Err(AproError::Compute(
-                "split del risultato micro-batch non valido".into(),
+                "invalid micro-batch result splitting".into(),
             ))
         };
         let _ = request.response.send(result);
@@ -952,7 +951,7 @@ fn validate_request(request: &ComputeRequest, config: &SchedulerConfig) -> Resul
         || request.batch.byte_len() > config.max_batch_bytes
     {
         return Err(AproError::ResourceLimit(
-            "batch compute oltre i limiti configurati".into(),
+            "compute batch exceeds the configured limits".into(),
         ));
     }
     if let Some(projection) = &request.projection {
@@ -1058,7 +1057,7 @@ pub fn scores_equivalent(left: &[ScoredRow], right: &[ScoredRow], tolerance: f32
 fn validate_query(batch: &ColumnarF32Batch, query: &[f32]) -> Result<()> {
     if query.len() != batch.width() || query.iter().any(|value| !value.is_finite()) {
         return Err(AproError::InvalidInput(
-            "query non finita o di dimensione errata".into(),
+            "query contains non-finite values or has an incorrect size".into(),
         ));
     }
     Ok(())
@@ -1090,7 +1089,7 @@ fn score(vector: &[f32], query: &[f32], metric: VectorMetric) -> Result<f32> {
     };
     if !score.is_finite() || score.abs() > f64::from(f32::MAX) {
         return Err(AproError::InvalidInput(
-            "score vettoriale non rappresentabile come f32".into(),
+            "vector score cannot be represented as f32".into(),
         ));
     }
     Ok(score as f32)
@@ -1167,7 +1166,7 @@ mod tests {
             _projection: Option<&ProjectionDescriptor>,
         ) -> Result<Vec<Option<f32>>> {
             Err(AproError::ResourceLimit(
-                "GPU out-of-memory iniettato".into(),
+                "Injected GPU out-of-memory error".into(),
             ))
         }
 
@@ -1237,7 +1236,7 @@ mod tests {
                 )
                 .is_ok()
             {
-                return Err(AproError::Compute("fault accelerator iniettato".into()));
+                return Err(AproError::Compute("Injected accelerator failure".into()));
             }
             CpuReference.score_vectors(batch, query, metric)
         }
@@ -1299,7 +1298,7 @@ mod tests {
             .unwrap();
         assert_eq!(second.execution, ComputeExecution::CpuFallback);
         assert_eq!(accelerator.calls.load(AtomicOrdering::SeqCst), 1);
-        assert!(second.fallback_reason.unwrap().contains("cooldown"));
+        assert!(second.fallback_reason.unwrap().contains("cooling down"));
     }
 
     #[test]
@@ -1331,7 +1330,12 @@ mod tests {
             .execute(request(ComputePreference::Accelerator))
             .unwrap();
         assert_eq!(result.execution, ComputeExecution::CpuFallback);
-        assert!(result.fallback_reason.unwrap().contains("budget byte"));
+        assert!(
+            result
+                .fallback_reason
+                .unwrap()
+                .contains("byte budget exhausted")
+        );
         assert_eq!(accelerator.calls.load(AtomicOrdering::SeqCst), 0);
         let metrics = scheduler.metrics();
         assert_eq!(metrics.queue_rejections, 1);

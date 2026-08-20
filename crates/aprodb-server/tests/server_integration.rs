@@ -352,7 +352,7 @@ async fn tcp_client_server_is_bounded_versioned_and_role_separated() {
         match AsyncClient::connect_tcp(data_address, ClientConfig::data(b"wrong-token-for-tests"))
             .await
         {
-            Ok(_) => panic!("handshake con token errato accettato"),
+            Ok(_) => panic!("handshake accepted an invalid token"),
             Err(error) => error,
         };
     assert!(matches!(

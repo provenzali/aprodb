@@ -22,7 +22,7 @@ fn logical_v1_frames_match_goldens() {
     };
     let record = RecordEnvelope {
         identity: identity.clone(),
-        payload: Some(Payload::Text("ciao".into())),
+        payload: Some(Payload::Text("hello".into())),
         content_type: "text/plain".into(),
         version,
         created_at_unix_ms: 10,
@@ -141,7 +141,7 @@ fn logical_v1_frames_match_goldens() {
             dictionary_id: None,
             logical_bytes: 5,
             logical_checksum: 0x1234_5678,
-            bytes: b"ciao!".to_vec(),
+            bytes: b"hello!".to_vec(),
         }),
         content_type: "text/plain".into(),
         version,

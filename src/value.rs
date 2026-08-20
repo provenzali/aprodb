@@ -24,7 +24,7 @@ impl Value {
             Self::Vector(values) => {
                 if values.is_empty() {
                     return Err(AproError::InvalidVector(
-                        "la dimensione deve essere maggiore di zero".into(),
+                        "the size must be greater than zero".into(),
                     ));
                 }
                 if values.iter().any(|value| !value.is_finite()) {
@@ -83,28 +83,28 @@ impl Value {
 
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self> {
         let Some((&tag, body)) = bytes.split_first() else {
-            return Err(AproError::Corrupt("valore vuoto".into()));
+            return Err(AproError::Corrupt("empty value".into()));
         };
 
         let value = match tag {
             TAG_BYTES => Self::Bytes(body.to_vec()),
             TAG_TEXT => Self::Text(
                 String::from_utf8(body.to_vec())
-                    .map_err(|_| AproError::Corrupt("testo UTF-8 non valido".into()))?,
+                    .map_err(|_| AproError::Corrupt("invalid UTF-8 text".into()))?,
             ),
-            TAG_INTEGER => Self::Integer(i64::from_le_bytes(array8(body, "intero")?)),
+            TAG_INTEGER => Self::Integer(i64::from_le_bytes(array8(body, "integer")?)),
             TAG_FLOAT => Self::Float(f64::from_le_bytes(array8(body, "float")?)),
             TAG_VECTOR => {
                 if body.len() < 4 {
-                    return Err(AproError::Corrupt("header vettore incompleto".into()));
+                    return Err(AproError::Corrupt("incomplete vector header".into()));
                 }
                 let count = u32::from_le_bytes(body[..4].try_into().unwrap()) as usize;
                 let expected = count
                     .checked_mul(4)
                     .and_then(|n| n.checked_add(4))
-                    .ok_or_else(|| AproError::Corrupt("dimensione vettore eccessiva".into()))?;
+                    .ok_or_else(|| AproError::Corrupt("excessive vector size".into()))?;
                 if body.len() != expected {
-                    return Err(AproError::Corrupt("dimensione vettore incoerente".into()));
+                    return Err(AproError::Corrupt("inconsistent vector size".into()));
                 }
                 let values = body[4..]
                     .chunks_exact(4)
@@ -113,9 +113,7 @@ impl Value {
                 Self::Vector(values)
             }
             _ => {
-                return Err(AproError::Corrupt(format!(
-                    "tipo valore sconosciuto: {tag}"
-                )));
+                return Err(AproError::Corrupt(format!("unknown value type: {tag}")));
             }
         };
         value.validate()?;
@@ -126,7 +124,7 @@ impl Value {
 fn array8(bytes: &[u8], kind: &str) -> Result<[u8; 8]> {
     bytes
         .try_into()
-        .map_err(|_| AproError::Corrupt(format!("{kind} di lunghezza non valida")))
+        .map_err(|_| AproError::Corrupt(format!("{kind} has an invalid length")))
 }
 
 #[cfg(test)]
@@ -137,7 +135,7 @@ mod tests {
     fn value_round_trip() {
         let values = [
             Value::Bytes(vec![0, 1, 255]),
-            Value::Text("ciao 🚀".into()),
+            Value::Text("hello 🚀".into()),
             Value::Integer(-42),
             Value::Float(3.25),
             Value::Vector(vec![1.0, -2.0, 4.5]),

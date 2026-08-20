@@ -2,25 +2,25 @@ use std::io;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AproError {
-    #[error("errore I/O: {0}")]
+    #[error("I/O error: {0}")]
     Io(#[from] io::Error),
 
-    #[error("dati persistenti corrotti: {0}")]
+    #[error("persistent data corrupted: {0}")]
     Corrupt(String),
 
-    #[error("chiave non valida: {0}")]
+    #[error("invalid key: {0}")]
     InvalidKey(String),
 
-    #[error("valore non valido: {0}")]
+    #[error("invalid value: {0}")]
     InvalidValue(String),
 
-    #[error("vettore non valido: {0}")]
+    #[error("invalid vector: {0}")]
     InvalidVector(String),
 
-    #[error("GPU non disponibile: {0}")]
+    #[error("GPU unavailable: {0}")]
     GpuUnavailable(String),
 
-    #[error("errore GPU: {0}")]
+    #[error("GPU error: {0}")]
     Gpu(String),
 }
 

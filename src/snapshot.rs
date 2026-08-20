@@ -20,7 +20,7 @@ pub(crate) fn load(path: &Path) -> Result<Vec<Record>> {
     let mut magic = [0u8; 8];
     file.read_exact(&mut magic)?;
     if magic != SNAPSHOT_MAGIC {
-        return Err(AproError::Corrupt("magic snapshot non valido".into()));
+        return Err(AproError::Corrupt("invalid snapshot magic number".into()));
     }
     let mut records = Vec::new();
     loop {
@@ -28,7 +28,7 @@ pub(crate) fn load(path: &Path) -> Result<Vec<Record>> {
             FrameRead::Record(record) => records.push(record),
             FrameRead::Eof => break,
             FrameRead::Truncated => {
-                return Err(AproError::Corrupt("snapshot troncato".into()));
+                return Err(AproError::Corrupt("truncated snapshot".into()));
             }
         }
     }
@@ -71,7 +71,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("aprodb.snapshot");
         let mut compression = CompressionChannel::new(1, 32).unwrap();
-        let stored = compression.compress(&Value::Text("ciao".into())).unwrap();
+        let stored = compression.compress(&Value::Text("hello".into())).unwrap();
         save(
             &path,
             &[Record {

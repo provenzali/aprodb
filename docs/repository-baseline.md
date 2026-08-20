@@ -1,71 +1,64 @@
-# Baseline del repository
+# Repository baseline
 
-Stato verificato il 19 agosto 2026 per la Milestone 0.
+Initial state verified on 19 August 2026 for Milestone 0, with publication status updated after authorization.
 
-## Perimetro locale
+## Local scope
 
-- repository Git inizializzato localmente sul branch `main`;
-- nessun commit, staging o remoto prima dell'autorizzazione di pubblicazione;
-- Git 2.54.0 e Rust stable 1.97.1 disponibili tramite i percorsi toolchain locali;
-- `gh` non installato;
-- Chrome verificato in sola lettura come account `provenzali`, con pagina di creazione repository accessibile;
-- il connettore GitHub associato a un account diverso non è autorizzato per AProDB.
+- Git repository initialized locally on the `main` branch;
+- before publication authorization, there were no commits, staged files, or remote;
+- Git 2.54.0 and Rust stable 1.97.1 available via local toolchain paths;
+- `gh` not installed;
+- Chrome verified in read-only mode as the `provenzali` account, with accessible repository creation page;
+- GitHub connector associated with a different account is not authorized for AProDB.
 
-L'utente ha approvato formalmente il 19 agosto 2026 la pubblicazione pubblica e
-la struttura di licenza: core `AGPL-3.0-only`; client, protocollo e tipi pubblici
-`Apache-2.0`. Il target candidato è `provenzali/aprodb`; la disponibilità del
-nome è stata verificata in sola lettura. Andrea Provenzali è identificato con
-ORCID `0009-0009-9677-9840`, senza pubblicare email o altri dati anagrafici.
+The user formally approved public publication and the licensing structure on 19 August 2026:
+core `AGPL-3.0-only`; client, protocol, and public types `Apache-2.0`.
+The confirmed target, now configured as `origin`, is the public repository [`provenzali/aprodb`](https://github.com/provenzali/aprodb).
+Andrea Provenzali is identified with ORCID `0009-0009-9677-9840`, without publishing email or other personal data.
 
-## Audit dei file
+## File audit
 
-La scansione iniziale e quella ripetuta dopo la Milestone 7 sui 103 file
-candidati fuori da `.git`/`target` non hanno trovato pattern forti di token,
-chiavi private o credenziali, indirizzi email o file di almeno 10 MiB. La
-scansione è un gate preventivo e non sostituisce un secret scanner dedicato
-nella CI.
+The initial scan and the one repeated after Milestone 7 on 103 candidate files outside `.git`/`target` did not find strong token patterns, private keys or credentials, email addresses, or files of at least 10 MiB.
+This scanning is a preventive gate and does not replace a dedicated secret scanner in the CI.
 
-L'audit `cargo metadata` successivo alla rilicenza ha esaminato 282 pacchetti
-terzi nell'intero grafo e 103 nel boundary Apache. Nessun pacchetto è privo del
-campo licenza e nessuno dichiara come unica scelta una licenza copyleft
-incompatibile. L'inventario è in `THIRD_PARTY_LICENSES.md` e deve essere
-rigenerato quando cambia `Cargo.lock`.
+The `cargo metadata` audit following the relicensing examined 282 third-party packages in the entire graph and 103 in the Apache boundary.
+No package is missing a license field and none declares an incompatible copyleft license as the only option.
+The inventory is in `THIRD_PARTY_LICENSES.md` and must be regenerated when `Cargo.lock` changes.
 
-Le regole di `.gitignore` sono state verificate con casi rappresentativi e coprono:
+The `.gitignore` rules have been verified with representative cases and cover:
 
-- ogni directory Rust `target`, compreso `target/bench-lab` e il target del benchmark comparativo;
-- directory dati AProDB, WAL, snapshot e database locali;
-- `.env`, chiavi, certificati privati e log;
-- il prompt di handoff locale `implementation-prompt.md`.
+- every Rust `target` directory, including `target/bench-lab` and the comparative benchmark target;
+- AProDB data directories, WAL, snapshot, and local databases;
+- `.env`, keys, private certificates, and logs;
+- the local handoff prompt `implementation-prompt.md`.
 
-`Cargo.lock` non è ignorato e deve essere versionato.
+`Cargo.lock` is not ignored and must be versioned.
 
-## Decisione di distribuzione
+## Distribution decision
 
-Appartengono alla distribuzione:
+Included in the distribution:
 
-- sorgenti, test, benchmark e relativi manifest/lockfile;
-- `README.md`, `manual.md`, `paper.md` e `diary.md`;
-- `benchmarks/comparative/README.md` e `RESULTS.md`, mantenuti come risultati locali storici con limiti espliciti;
-- ADR, matrice dei requisiti, testi AGPL/Apache, attribuzione, citazione,
-  governance e workflow CI CPU-only.
+- sources, tests, benchmarks, and related manifests/lockfiles;
+- `README.md`, `manual.md`, `paper.md`, and `diary.md`;
+- `benchmarks/comparative/README.md` and `RESULTS.md`, maintained as historical local results with explicit limits;
+- ADR, requirements matrix, AGPL/Apache texts, attribution, citation, governance, and CPU-only CI workflow.
 
-Non appartengono alla distribuzione:
+Not included in the distribution:
 
-- build, laboratorio riproducibile voluminoso e report grezzi sotto `target`;
-- dati, WAL, snapshot, database, log, profili e configurazioni locali;
-- credenziali o materiale crittografico;
-- `implementation-prompt.md`, conservato localmente perché contiene path e stato di sessione macchina-specifici.
+- build artifacts, large reproducible lab outputs, and raw reports under `target`;
+- data, WAL, snapshot, database, logs, profiles, and local configurations;
+- credentials or cryptographic material;
+- `implementation-prompt.md`, stored locally because it contains machine-specific paths and session state.
 
-Note e risultati pubblicabili devono usare path relativi o esempi neutrali. Non devono contenere email dell'account, segreti o identificatori non necessari. I benchmark embedded e client/server restano separati.
+Published notes and results must use relative paths or neutral examples. They must not contain account emails, secrets, or unnecessary identifiers. The embedded benchmarks and client/server benchmarks remain separate.
 
-## Gate iniziali
+## Initial Gates
 
-Prima di qualsiasi modifica al motore sono passati:
+Before any modification to the engine, the following have passed:
 
 - `cargo fmt --all --check`;
 - `cargo clippy --workspace --all-targets --no-default-features -- -D warnings`;
 - `cargo test --workspace --no-default-features`;
-- Clippy e test con feature predefinite.
+- Clippy and tests with default features.
 
-Il test GPU esplicitamente ignorato dal prototipo non è stato forzato in questa baseline; la motivazione storica è documentata nel diario. Nessun server esterno o laboratorio comparativo è stato avviato.
+The GPU test explicitly ignored by the prototype was not enforced in this baseline; the historical motivation is documented in the diary. No external servers or comparative laboratories have been started.

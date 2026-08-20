@@ -23,7 +23,7 @@ fn one_shot_import_preserves_source_copy_and_maps_live_0_1_values() {
     let destination = directory.path().join("aprodb-1");
     {
         let database = Database::open(Config::new(&source)).unwrap();
-        database.put("text", Value::Text("ciao".into())).unwrap();
+        database.put("text", Value::Text("hello".into())).unwrap();
         database.put("integer", Value::Integer(42)).unwrap();
         database
             .put("vector", Value::Vector(vec![1.0, 2.0]))
@@ -66,7 +66,7 @@ fn one_shot_import_preserves_source_copy_and_maps_live_0_1_values() {
     let imported = Engine::open(destination_config).unwrap();
     assert_eq!(
         imported.get(&identity("text")).unwrap().unwrap().payload,
-        Some(Payload::Text("ciao".into()))
+        Some(Payload::Text("hello".into()))
     );
     assert_eq!(
         imported.get(&identity("integer")).unwrap().unwrap().payload,

@@ -1,26 +1,15 @@
-# Benchmark compressione Milestone 5
+# Compression benchmark for Milestone 5
 
-Questo laboratorio misura il percorso embedded reale di AProDB, non un server
-via rete. Confronta quattro configurazioni per gli stessi keyspace e la stessa
-durabilità: Zstandard logico AProDB, LZ4 fisico Fjall, entrambi e nessuno.
+This lab measures the actual embedded execution path of AProDB, not a network server. It compares four configurations for the same keyspace and durability: AProDB logical Zstandard, Fjall physical LZ4, both, and neither.
 
-## Esecuzione
+## Execution
 
 ```powershell
 cargo run --release -p aprodb-engine --example compression_benchmark
 ```
 
-Ogni variante scrive 256 record da 4 KiB, in 16 batch atomici Durable, poi
-esegue sync, compaction, verify, riapertura e una lettura. Il workload viene
-ripetuto con payload comprimibili e pseudocasuali deterministici.
+Each variant writes 256 records of 4 KiB each, in 16 durable atomic batches, then performs sync, compaction, verification, reopening, and a read. The workload is repeated with compressible and deterministically pseudorandom payloads.
 
-Le latenze p50/p95/p99 sono per batch, il throughput è in record/s. I contatori
-I/O di processo su Windows includono tutto l'I/O del processo; la memoria è il
-resident set alla fine del tratto misurato, non il picco. I file Fjall partono da
-una preallocazione di 64 MiB: a questa scala `disk_bytes_before_compaction` non
-è utile per confrontare il payload, mentre byte logici/codificati e I/O di
-processo restano confrontabili. Un singolo run locale non autorizza affermazioni
-competitive.
+The p50/p95/p99 latencies are per batch; throughput is measured in records/s. Process I/O counters on Windows include all process I/O; memory usage is reported as the resident set size at the end of the measured interval, not the peak. Fjall files start with a 64 MiB preallocation: at this scale, `disk_bytes_before_compaction` is not useful for comparing payloads, while logical/encoded bytes and process I/O remain comparable. A single local run does not justify competitive claims.
 
-I risultati verificati sono in [RESULTS.md](RESULTS.md). La decisione è in
-[ADR-0002](../../docs/adr/0002-logical-compression.md).
+The verified results are in [RESULTS.md](RESULTS.md). The decision is in [ADR-0002](../../docs/adr/0002-logical-compression.md).

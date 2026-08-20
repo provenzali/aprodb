@@ -2,7 +2,7 @@
 name = "aprodb"
 version = "0.1.0"
 edition = "2024"
-description = "Database key-value vettoriale persistente, parallelo e GPU-aware"
+description = "Persistent, parallel, GPU-aware key-value and vector database"
 authors = ["Andrea Provenzali"]
 license = "AGPL-3.0-only"
 repository = "https://github.com/provenzali/aprodb"

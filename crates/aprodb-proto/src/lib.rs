@@ -14,11 +14,11 @@ pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolError {
-    #[error("frame di {actual} byte oltre il limite {maximum}")]
+    #[error("frame of {actual} bytes exceeds the limit {maximum}")]
     FrameTooLarge { actual: usize, maximum: usize },
-    #[error("messaggio protobuf non valido: {0}")]
+    #[error("invalid protobuf message: {0}")]
     Decode(#[from] prost::DecodeError),
-    #[error("messaggio protocollo non valido: {0}")]
+    #[error("invalid protocol message: {0}")]
     Invalid(String),
 }
 
@@ -55,22 +55,22 @@ impl ClientHello {
 
     pub fn validate(&self) -> Result<EndpointRole> {
         if self.magic != PROTOCOL_MAGIC {
-            return Err(ProtocolError::Invalid("magic handshake errato".into()));
+            return Err(ProtocolError::Invalid("invalid handshake magic".into()));
         }
         if self.protocol_major != PROTOCOL_MAJOR {
             return Err(ProtocolError::Invalid(format!(
-                "protocol major {} non supportato",
+                "unsupported protocol major version {}",
                 self.protocol_major
             )));
         }
         let max_frame = self.max_frame_bytes as usize;
         if !(MIN_FRAME_BYTES..=DEFAULT_MAX_FRAME_BYTES).contains(&max_frame) {
             return Err(ProtocolError::Invalid(format!(
-                "max frame {max_frame} fuori intervallo"
+                "max frame {max_frame} out of range"
             )));
         }
         EndpointRole::try_from(self.role)
-            .map_err(|_| ProtocolError::Invalid("ruolo handshake sconosciuto".into()))
+            .map_err(|_| ProtocolError::Invalid("unknown handshake role".into()))
     }
 }
 
@@ -241,10 +241,10 @@ impl Key {
             ("key", &self.key),
         ] {
             if value.is_empty() {
-                return Err(ProtocolError::Invalid(format!("{name} vuoto")));
+                return Err(ProtocolError::Invalid(format!("{name} is empty")));
             }
             if value.len() > u16::MAX as usize {
-                return Err(ProtocolError::Invalid(format!("{name} troppo lungo")));
+                return Err(ProtocolError::Invalid(format!("{name} is too long")));
             }
         }
         Ok(())
@@ -631,21 +631,23 @@ pub struct Request {
 impl Request {
     pub fn validate(&self) -> Result<()> {
         if self.request_id == 0 {
-            return Err(ProtocolError::Invalid("request_id zero".into()));
+            return Err(ProtocolError::Invalid("request_id is zero".into()));
         }
         WireDurability::try_from(self.durability)
-            .map_err(|_| ProtocolError::Invalid("durability sconosciuta".into()))?;
+            .map_err(|_| ProtocolError::Invalid("unknown durability".into()))?;
         let operation = self
             .operation
             .as_ref()
-            .ok_or_else(|| ProtocolError::Invalid("operation assente".into()))?;
+            .ok_or_else(|| ProtocolError::Invalid("operation missing".into()))?;
         if operation.is_data() || operation.requires_identity() {
             if self.tenant.is_empty() || self.namespace.is_empty() {
-                return Err(ProtocolError::Invalid("tenant o namespace vuoto".into()));
+                return Err(ProtocolError::Invalid(
+                    "tenant or namespace is empty".into(),
+                ));
             }
             if self.tenant.len() > u16::MAX as usize || self.namespace.len() > u16::MAX as usize {
                 return Err(ProtocolError::Invalid(
-                    "tenant o namespace troppo lungo".into(),
+                    "tenant or namespace too long".into(),
                 ));
             }
         }
@@ -773,23 +775,27 @@ pub mod request {
                     operation
                         .key
                         .as_ref()
-                        .ok_or_else(|| ProtocolError::Invalid("chiave Put assente".into()))?
+                        .ok_or_else(|| ProtocolError::Invalid("Put operation key missing".into()))?
                         .validate()?;
                     if operation.payload.is_none() {
-                        return Err(ProtocolError::Invalid("payload Put assente".into()));
+                        return Err(ProtocolError::Invalid(
+                            "Put operation payload missing".into(),
+                        ));
                     }
                     validate_idempotency_hash(&operation.idempotency_key_hash)?;
                 }
                 Self::Get(operation) => operation
                     .key
                     .as_ref()
-                    .ok_or_else(|| ProtocolError::Invalid("chiave Get assente".into()))?
+                    .ok_or_else(|| ProtocolError::Invalid("Get operation key missing".into()))?
                     .validate()?,
                 Self::Delete(operation) => {
                     operation
                         .key
                         .as_ref()
-                        .ok_or_else(|| ProtocolError::Invalid("chiave Delete assente".into()))?
+                        .ok_or_else(|| {
+                            ProtocolError::Invalid("Delete operation key missing".into())
+                        })?
                         .validate()?;
                     validate_idempotency_hash(&operation.idempotency_key_hash)?;
                 }
@@ -798,7 +804,7 @@ pub mod request {
                         || operation.mutations.len() > MAX_BATCH_MUTATIONS
                     {
                         return Err(ProtocolError::Invalid(format!(
-                            "AtomicBatch con {} mutazioni",
+                            "AtomicBatch with {} mutations",
                             operation.mutations.len()
                         )));
                     }
@@ -811,7 +817,7 @@ pub mod request {
                                 Self::Delete(delete.clone()).validate()?;
                             }
                             None => {
-                                return Err(ProtocolError::Invalid("mutazione batch vuota".into()));
+                                return Err(ProtocolError::Invalid("empty batch mutation".into()));
                             }
                         }
                     }
@@ -827,7 +833,7 @@ pub mod request {
                 Self::ComputeStats(_) => {}
                 Self::AuditList(operation) => {
                     if operation.limit == 0 {
-                        return Err(ProtocolError::Invalid("limite AuditList zero".into()));
+                        return Err(ProtocolError::Invalid("AuditList limit is zero".into()));
                     }
                 }
                 Self::Backup(operation) => {
@@ -837,19 +843,19 @@ pub mod request {
                             byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
                         })
                     {
-                        return Err(ProtocolError::Invalid("nome backup non sicuro".into()));
+                        return Err(ProtocolError::Invalid("unsafe backup name".into()));
                     }
                 }
                 Self::ExplainPlacement(operation) => operation
                     .key
                     .as_ref()
                     .ok_or_else(|| {
-                        ProtocolError::Invalid("chiave ExplainPlacement assente".into())
+                        ProtocolError::Invalid("ExplainPlacement operation key missing".into())
                     })?
                     .validate()?,
                 Self::Expire(operation) => {
                     if operation.limit == 0 {
-                        return Err(ProtocolError::Invalid("limite Expire zero".into()));
+                        return Err(ProtocolError::Invalid("Expire limit is zero".into()));
                     }
                 }
                 Self::Append(operation) => Self::Put(operation.clone()).validate()?,
@@ -857,44 +863,45 @@ pub mod request {
                     let scope = operation
                         .scope
                         .as_ref()
-                        .ok_or_else(|| ProtocolError::Invalid("scope Claim assente".into()))?;
+                        .ok_or_else(|| ProtocolError::Invalid("Claim scope missing".into()))?;
                     if scope.collection.is_empty()
                         || scope.partition.is_empty()
                         || operation.max_records == 0
                         || operation.lease_duration_ms == 0
                     {
-                        return Err(ProtocolError::Invalid("Claim non valido".into()));
+                        return Err(ProtocolError::Invalid("invalid Claim".into()));
                     }
                     validate_idempotency_hash(&operation.idempotency_key_hash)?;
                 }
                 Self::Heartbeat(operation) => validate_lease(operation, true)?,
                 Self::Complete(operation) => validate_lease(operation, false)?,
                 Self::Fail(operation) => validate_lease(
-                    operation
-                        .lease
-                        .as_ref()
-                        .ok_or_else(|| ProtocolError::Invalid("lease Fail assente".into()))?,
+                    operation.lease.as_ref().ok_or_else(|| {
+                        ProtocolError::Invalid("missing lease in Fail operation".into())
+                    })?,
                     false,
                 )?,
                 Self::Publish(operation) => {
                     operation
                         .key
                         .as_ref()
-                        .ok_or_else(|| ProtocolError::Invalid("chiave Publish assente".into()))?
+                        .ok_or_else(|| {
+                            ProtocolError::Invalid("Publish operation key missing".into())
+                        })?
                         .validate()?;
                     validate_idempotency_hash(&operation.idempotency_key_hash)?;
                 }
                 Self::SubscribeChanges(operation) => {
                     if operation.collection.is_empty() || operation.limit == 0 {
                         return Err(ProtocolError::Invalid(
-                            "SubscribeChanges collection/limit non validi".into(),
+                            "SubscribeChanges collection or limit invalid".into(),
                         ));
                     }
                 }
                 Self::GetSurface(operation) => validate_projection_id(&operation.projection_id)?,
                 Self::CreateSurface(operation) => {
                     let definition = operation.definition.as_ref().ok_or_else(|| {
-                        ProtocolError::Invalid("definizione superficie assente".into())
+                        ProtocolError::Invalid("surface definition missing".into())
                     })?;
                     validate_projection_id(&definition.id)?;
                     if definition.source_tenant.is_empty()
@@ -906,18 +913,18 @@ pub mod request {
                         || definition.retained_generations == 0
                     {
                         return Err(ProtocolError::Invalid(
-                            "definizione superficie incompleta".into(),
+                            "incomplete surface definition".into(),
                         ));
                     }
                     super::WireSurfaceKind::try_from(definition.kind)
-                        .map_err(|_| ProtocolError::Invalid("surface kind sconosciuto".into()))?;
+                        .map_err(|_| ProtocolError::Invalid("unknown surface kind".into()))?;
                     super::WireSurfaceFormat::try_from(definition.format)
-                        .map_err(|_| ProtocolError::Invalid("surface format sconosciuto".into()))?;
+                        .map_err(|_| ProtocolError::Invalid("unknown surface format".into()))?;
                 }
                 Self::BuildSurface(operation) | Self::RebuildSurface(operation) => {
                     validate_projection_id(&operation.projection_id)?;
                     if matches!(self, Self::BuildSurface(_)) && operation.max_events == 0 {
-                        return Err(ProtocolError::Invalid("max_events superficie zero".into()));
+                        return Err(ProtocolError::Invalid("surface max_events is zero".into()));
                     }
                 }
                 Self::CompressionPolicy(operation) => {
@@ -926,7 +933,7 @@ pub mod request {
                 Self::ConfigureCompression(operation) => {
                     validate_collection(&operation.collection)?;
                     let policy = operation.policy.as_ref().ok_or_else(|| {
-                        ProtocolError::Invalid("policy compressione assente".into())
+                        ProtocolError::Invalid("missing compression policy".into())
                     })?;
                     validate_compression_policy(policy)?;
                 }
@@ -938,7 +945,7 @@ pub mod request {
                         || operation.max_dictionary_bytes == 0
                     {
                         return Err(ProtocolError::Invalid(
-                            "richiesta training dizionario incompleta".into(),
+                            "incomplete train dictionary request".into(),
                         ));
                     }
                 }
@@ -950,14 +957,13 @@ pub mod request {
                         || operation.max_scan_records == 0
                     {
                         return Err(ProtocolError::Invalid(
-                            "richiesta VectorSearch non valida".into(),
+                            "invalid VectorSearch request".into(),
                         ));
                     }
                     super::WireVectorMetric::try_from(operation.metric)
-                        .map_err(|_| ProtocolError::Invalid("vector metric sconosciuta".into()))?;
-                    super::WireComputePreference::try_from(operation.preference).map_err(|_| {
-                        ProtocolError::Invalid("compute preference sconosciuta".into())
-                    })?;
+                        .map_err(|_| ProtocolError::Invalid("unknown vector metric".into()))?;
+                    super::WireComputePreference::try_from(operation.preference)
+                        .map_err(|_| ProtocolError::Invalid("unknown compute preference".into()))?;
                 }
             }
             Ok(())
@@ -969,7 +975,7 @@ pub mod request {
             Ok(())
         } else {
             Err(ProtocolError::Invalid(
-                "idempotency hash deve essere vuoto o di 32 byte".into(),
+                "idempotency hash must be empty or exactly 32 bytes".into(),
             ))
         }
     }
@@ -978,20 +984,20 @@ pub mod request {
         operation
             .key
             .as_ref()
-            .ok_or_else(|| ProtocolError::Invalid("chiave lease assente".into()))?
+            .ok_or_else(|| ProtocolError::Invalid("lease operation key missing".into()))?
             .validate()?;
         if operation.lease_id.len() != 16
             || operation.fencing_token == 0
             || (extension_required && operation.extension_ms == 0)
         {
-            return Err(ProtocolError::Invalid("prova lease non valida".into()));
+            return Err(ProtocolError::Invalid("invalid lease proof".into()));
         }
         validate_idempotency_hash(&operation.idempotency_key_hash)
     }
 
     fn validate_projection_id(id: &str) -> Result<()> {
         if id.is_empty() || id.len() > 128 {
-            Err(ProtocolError::Invalid("projection id non valido".into()))
+            Err(ProtocolError::Invalid("invalid projection id".into()))
         } else {
             Ok(())
         }
@@ -999,7 +1005,7 @@ pub mod request {
 
     fn validate_collection(collection: &[u8]) -> Result<()> {
         if collection.is_empty() || collection.len() > u16::MAX as usize {
-            Err(ProtocolError::Invalid("collection non valida".into()))
+            Err(ProtocolError::Invalid("invalid collection".into()))
         } else {
             Ok(())
         }
@@ -1014,9 +1020,9 @@ pub mod request {
             policy.archive.as_ref(),
         ] {
             let tier = tier
-                .ok_or_else(|| ProtocolError::Invalid("tier policy compressione assente".into()))?;
+                .ok_or_else(|| ProtocolError::Invalid("missing tier compression policy".into()))?;
             super::WireCompressionMode::try_from(tier.mode)
-                .map_err(|_| ProtocolError::Invalid("compression mode sconosciuto".into()))?;
+                .map_err(|_| ProtocolError::Invalid("unknown compression mode".into()))?;
         }
         Ok(())
     }
@@ -1697,18 +1703,18 @@ impl TryFrom<WireRecord> for aprodb_types::RecordEnvelope {
             record.namespace,
             record
                 .key
-                .ok_or_else(|| ProtocolError::Invalid("record senza chiave".into()))?,
+                .ok_or_else(|| ProtocolError::Invalid("record without key".into()))?,
         )?;
         let version = record
             .version
-            .ok_or_else(|| ProtocolError::Invalid("record senza versione".into()))?
+            .ok_or_else(|| ProtocolError::Invalid("record without version".into()))?
             .into();
         let workflow = record
             .workflow
-            .ok_or_else(|| ProtocolError::Invalid("record senza workflow".into()))?;
-        let lease_id = fixed_optional::<16>(workflow.lease_id, "lease id")?;
+            .ok_or_else(|| ProtocolError::Invalid("record without workflow".into()))?;
+        let lease_id = fixed_optional::<16>(workflow.lease_id, "lease ID")?;
         let idempotency_key_hash =
-            fixed_optional::<32>(record.idempotency_key_hash, "idempotency hash")?;
+            fixed_optional::<32>(record.idempotency_key_hash, "idempotency key hash")?;
         let envelope = Self {
             identity,
             payload: record.payload.map(TryInto::try_into).transpose()?,
@@ -1743,7 +1749,7 @@ fn fixed_optional<const N: usize>(bytes: Vec<u8>, name: &str) -> Result<Option<[
     bytes
         .try_into()
         .map(Some)
-        .map_err(|_: Vec<u8>| ProtocolError::Invalid(format!("{name} di lunghezza errata")))
+        .map_err(|_: Vec<u8>| ProtocolError::Invalid(format!("{name} has incorrect length")))
 }
 
 impl From<aprodb_types::MutationReceipt> for Receipt {
@@ -1762,16 +1768,16 @@ impl TryFrom<Receipt> for aprodb_types::MutationReceipt {
 
     fn try_from(receipt: Receipt) -> Result<Self> {
         let durability = WireDurability::try_from(receipt.durability)
-            .map_err(|_| ProtocolError::Invalid("durability receipt sconosciuta".into()))?
+            .map_err(|_| ProtocolError::Invalid("unknown receipt durability".into()))?
             .into();
         let batch_id = receipt
             .batch_id
             .try_into()
-            .map_err(|_: Vec<u8>| ProtocolError::Invalid("batch id non lungo 20 byte".into()))?;
+            .map_err(|_: Vec<u8>| ProtocolError::Invalid("batch id not 20 bytes long".into()))?;
         Ok(Self {
             version: receipt
                 .version
-                .ok_or_else(|| ProtocolError::Invalid("receipt senza versione".into()))?
+                .ok_or_else(|| ProtocolError::Invalid("receipt without version".into()))?
                 .into(),
             durability,
             durable_watermark: receipt.durable_watermark,
@@ -1808,7 +1814,7 @@ pub fn decode_limited<M: Message + Default>(bytes: &[u8], maximum: usize) -> Res
 pub fn encode_frame<M: Message>(message: &M, maximum: usize) -> Result<Bytes> {
     let payload = encode_limited(message, maximum)?;
     let payload_len = u32::try_from(payload.len())
-        .map_err(|_| ProtocolError::Invalid("frame oltre u32".into()))?;
+        .map_err(|_| ProtocolError::Invalid("frame size exceeds u32 capacity".into()))?;
     let mut frame = BytesMut::with_capacity(FRAME_LENGTH_BYTES + payload.len());
     frame.put_u32(payload_len);
     frame.extend_from_slice(&payload);
@@ -1817,13 +1823,13 @@ pub fn encode_frame<M: Message>(message: &M, maximum: usize) -> Result<Bytes> {
 
 pub fn decode_frame<M: Message + Default>(frame: &[u8], maximum: usize) -> Result<M> {
     if frame.len() < FRAME_LENGTH_BYTES {
-        return Err(ProtocolError::Invalid("prefisso frame incompleto".into()));
+        return Err(ProtocolError::Invalid("incomplete frame prefix".into()));
     }
     let declared = u32::from_be_bytes(frame[..FRAME_LENGTH_BYTES].try_into().expect("4 byte"));
     let payload = &frame[FRAME_LENGTH_BYTES..];
     if declared as usize != payload.len() {
         return Err(ProtocolError::Invalid(format!(
-            "frame dichiara {declared} byte ma ne contiene {}",
+            "frame declares {declared} bytes but contains {}",
             payload.len()
         )));
     }

@@ -24,7 +24,7 @@ fn main() {
                 key: b"k".to_vec(),
             }),
             payload: Some(WirePayload {
-                kind: Some(wire_payload::Kind::TextValue("ciao".into())),
+                kind: Some(wire_payload::Kind::TextValue("hello".into())),
             }),
             content_type: "text/plain".into(),
             metadata: BTreeMap::new(),

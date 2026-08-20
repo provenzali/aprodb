@@ -138,7 +138,7 @@ impl EngineConfig {
         };
         config
             .apply_memory_budget(256 * 1024 * 1024)
-            .expect("il budget predefinito è valido");
+            .expect("the default budget is valid");
         config
     }
 
@@ -146,7 +146,7 @@ impl EngineConfig {
         const MINIMUM: usize = 128 * 1024 * 1024;
         if budget_bytes < MINIMUM {
             return Err(AproError::InvalidInput(format!(
-                "budget memoria {budget_bytes} inferiore al minimo {MINIMUM}"
+                "memory budget {budget_bytes} is below the minimum {MINIMUM}"
             )));
         }
         self.memory_budget_bytes = budget_bytes;
@@ -479,7 +479,8 @@ impl Engine {
         validate_config(&config)?;
         if config.path.join("aprodb.wal").exists() || config.path.join("aprodb.snapshot").exists() {
             return Err(AproError::IncompatibleFormat(
-                "directory AProDB 0.1: usare esclusivamente l'import one-shot su copia".into(),
+                "AProDB 0.1 directory detected: use one-shot import only on a duplicate copy"
+                    .into(),
             ));
         }
         let backend = open_storage_backend(&config, &config.path)?;
@@ -493,20 +494,20 @@ impl Engine {
                 let catalog: CatalogState = decode_logical(LogicalFrameKind::Catalog, &bytes)?;
                 if catalog.format_version != 1 {
                     return Err(AproError::IncompatibleFormat(format!(
-                        "catalogo logico {} non supportato",
+                        "unsupported logical catalog version {}",
                         catalog.format_version
                     )));
                 }
                 if catalog.backend != backend.name() {
                     return Err(AproError::IncompatibleFormat(format!(
-                        "catalogo backend {}, adattatore {}",
+                        "catalog backend '{}' does not match adapter '{}'",
                         catalog.backend,
                         backend.name()
                     )));
                 }
                 if catalog.shard_sequences.len() != config.shards as usize {
                     return Err(AproError::IncompatibleFormat(format!(
-                        "catalogo con {} shard, configurazione con {}",
+                        "catalog contains {} shards, but configuration specifies {}",
                         catalog.shard_sequences.len(),
                         config.shards
                     )));
@@ -535,7 +536,7 @@ impl Engine {
                 let state: RadialState = decode_logical(LogicalFrameKind::RadialState, &bytes)?;
                 if state.format_version != 1 {
                     return Err(AproError::IncompatibleFormat(format!(
-                        "stato radiale {} non supportato",
+                        "unsupported radial state version {}",
                         state.format_version
                     )));
                 }
@@ -550,7 +551,7 @@ impl Engine {
                         decode_logical(LogicalFrameKind::CompressionCatalog, &bytes)?;
                     if catalog.format_version != 1 {
                         return Err(AproError::IncompatibleFormat(format!(
-                            "catalogo compressione {} non supportato",
+                            "unsupported compression catalog version {}",
                             catalog.format_version
                         )));
                     }
@@ -573,7 +574,7 @@ impl Engine {
                 let state: AuditState = decode_logical(LogicalFrameKind::AuditState, &bytes)?;
                 if state.format_version != 1 {
                     return Err(AproError::IncompatibleFormat(format!(
-                        "stato audit {} non supportato",
+                        "unsupported audit state version {}",
                         state.format_version
                     )));
                 }
@@ -643,7 +644,7 @@ impl Engine {
         identity.validate(&self.config.limits)?;
         if policy.max_self_contained_event_bytes > self.config.limits.max_record_bytes {
             return Err(AproError::ResourceLimit(
-                "limite SelfContained maggiore del limite record".into(),
+                "SelfContained event size limit exceeds maximum record size limit".into(),
             ));
         }
         let _catalog_writer = self.catalog_writer.lock();
@@ -679,7 +680,7 @@ impl Engine {
                 || dictionary.collection != collection.collection
             {
                 return Err(AproError::InvalidInput(format!(
-                    "dizionario {dictionary_id} appartiene a una collection diversa"
+                    "dictionary {dictionary_id} belongs to a different collection"
                 )));
             }
         }
@@ -729,7 +730,7 @@ impl Engine {
         let schema = schema.into();
         if schema.is_empty() || schema.len() > 255 {
             return Err(AproError::InvalidInput(
-                "schema dizionario deve contenere 1..255 byte".into(),
+                "dictionary schema must contain 1..255 bytes".into(),
             ));
         }
         if training_samples.len() < 8
@@ -740,7 +741,7 @@ impl Engine {
             || max_dictionary_bytes > self.config.max_dictionary_bytes
         {
             return Err(AproError::ResourceLimit(
-                "campioni o dimensione dizionario fuori dai limiti configurati".into(),
+                "samples or dictionary size out of configured limits".into(),
             ));
         }
         let training = encode_dictionary_samples(training_samples)?;
@@ -750,10 +751,10 @@ impl Engine {
             .chain(&validation)
             .map(Vec::len)
             .try_fold(0usize, |total, len| total.checked_add(len))
-            .ok_or_else(|| AproError::ResourceLimit("byte training oltre usize".into()))?;
+            .ok_or_else(|| AproError::ResourceLimit("training bytes exceed usize".into()))?;
         if training_bytes > self.config.max_dictionary_training_bytes {
             return Err(AproError::ResourceLimit(format!(
-                "training dizionario di {training_bytes} byte, massimo {}",
+                "dictionary training uses {training_bytes} bytes, maximum {}",
                 self.config.max_dictionary_training_bytes
             )));
         }
@@ -761,7 +762,7 @@ impl Engine {
             .map_err(|error| AproError::InvalidInput(format!("training Zstandard: {error}")))?;
         if dictionary_bytes.is_empty() || dictionary_bytes.len() > max_dictionary_bytes {
             return Err(AproError::Corrupt(
-                "trainer Zstandard ha prodotto una dimensione non valida".into(),
+                "Zstandard trainer produced an invalid size".into(),
             ));
         }
         let level = CompressionPolicy::default().warm.zstd_level;
@@ -786,7 +787,7 @@ impl Engine {
             >= without_dictionary_bytes
         {
             return Err(AproError::InvalidInput(format!(
-                "dizionario non pubblicato: {with_dictionary_bytes} byte con dizionario, {without_dictionary_bytes} senza"
+                "dictionary not published: {with_dictionary_bytes} bytes with dictionary, {without_dictionary_bytes} without"
             )));
         }
 
@@ -796,14 +797,14 @@ impl Engine {
             >= self.config.max_dictionaries
         {
             return Err(AproError::ResourceLimit(
-                "limite dizionari configurato raggiunto".into(),
+                "configured dictionary limit reached".into(),
             ));
         }
         let id = catalog.next_dictionary_id;
         catalog.next_dictionary_id = catalog
             .next_dictionary_id
             .checked_add(1)
-            .ok_or_else(|| AproError::ResourceLimit("id dizionario esaurito".into()))?;
+            .ok_or_else(|| AproError::ResourceLimit("dictionary id exhausted".into()))?;
         let dictionary = CompressionDictionary {
             id,
             tenant: collection.tenant.clone(),
@@ -883,7 +884,7 @@ impl Engine {
             .is_some_and(|path| Path::new(path) != self.config.path)
         {
             return Err(AproError::Unsupported(
-                "Fjall non espone tiering fisico fra directory; usare classi logiche/proiezioni"
+                "Fjall does not expose physical tiering across directories; use logical classes/projections"
                     .into(),
             ));
         }
@@ -924,28 +925,30 @@ impl Engine {
         self.ensure_healthy()?;
         identity.validate(&self.config.limits)?;
         if urgency_millis > 1000 {
-            return Err(AproError::InvalidInput("urgenza radiale oltre 1000".into()));
+            return Err(AproError::InvalidInput(
+                "radial urgency exceeds 1000".into(),
+            ));
         }
         let shard = self.shard_for_partition(&identity.partition_key());
         let _writer = self.shard_writers[shard as usize].lock();
         let head = self
             .current_head(identity)?
-            .ok_or_else(|| AproError::InvalidInput("record non presente".into()))?;
+            .ok_or_else(|| AproError::InvalidInput("record not found".into()))?;
         if head.tombstone {
-            return Err(AproError::InvalidInput("record eliminato".into()));
+            return Err(AproError::InvalidInput("record deleted".into()));
         }
         let mut descriptor = self
             .load_radial_descriptor(identity)?
-            .ok_or_else(|| AproError::Corrupt("descrittore radiale del record mancante".into()))?;
+            .ok_or_else(|| AproError::Corrupt("radial descriptor for record missing".into()))?;
         if descriptor.canonical_version != head.version {
             return Err(AproError::Corrupt(
-                "descrittore radiale riferito a una versione obsoleta".into(),
+                "radial descriptor refers to obsolete version".into(),
             ));
         }
         descriptor.urgency_millis = urgency_millis;
         descriptor.admin_pin_until_unix_ms = pin_until_unix_ms;
         descriptor.reconstruction_cost_micros = reconstruction_cost_micros;
-        descriptor.last_decision = "segnali amministrativi aggiornati".into();
+        descriptor.last_decision = "administrative signals updated".into();
         let mut batch = StorageBatch::with_capacity(1);
         batch.put(
             StorageSpace::Radial,
@@ -966,7 +969,7 @@ impl Engine {
         identity.validate(&self.config.limits)?;
         let descriptor = self
             .load_radial_descriptor(identity)?
-            .ok_or_else(|| AproError::InvalidInput("descrittore radiale non presente".into()))?;
+            .ok_or_else(|| AproError::InvalidInput("radial descriptor not present".into()))?;
         let policy = self
             .radial_state
             .read()
@@ -1000,10 +1003,10 @@ impl Engine {
             descriptor.urgency_millis
         )];
         if pinned {
-            reasons.push("pin amministrativo attivo".into());
+            reasons.push("administrative pin active".into());
         }
         if expired {
-            reasons.push("TTL scaduto".into());
+            reasons.push("TTL expired".into());
         }
         if recommended_layer != descriptor.layer
             && at_unix_ms.saturating_sub(descriptor.layer_since_unix_ms)
@@ -1011,7 +1014,7 @@ impl Engine {
             && !pinned
             && !expired
         {
-            reasons.push("permanenza minima impedisce la migrazione immediata".into());
+            reasons.push("minimum residency prevents immediate migration".into());
             recommended_layer = descriptor.layer;
         }
         Ok(PlacementExplanation {
@@ -1049,7 +1052,7 @@ impl Engine {
                 Ok(())
             } else {
                 Err(AproError::Conflict(format!(
-                    "projection id {} già configurato diversamente",
+                    "projection id {} already configured differently",
                     definition.id
                 )))
             };
@@ -1065,7 +1068,7 @@ impl Engine {
             >= self.config.max_surfaces
         {
             return Err(AproError::ResourceLimit(format!(
-                "limite di {} superfici raggiunto",
+                "limit of {} surfaces reached",
                 self.config.max_surfaces
             )));
         }
@@ -1130,14 +1133,14 @@ impl Engine {
         self.ensure_healthy()?;
         if max_events == 0 || max_events > self.config.limits.max_queue_depth {
             return Err(AproError::ResourceLimit(format!(
-                "builder superficie richiede 1..{} eventi",
+                "surface builder requires 1..{} events",
                 self.config.limits.max_queue_depth
             )));
         }
         let _surface_writer = self.surface_writer.lock();
         let definition = self
             .load_surface_definition(projection_id)?
-            .ok_or_else(|| AproError::InvalidInput("proiezione non configurata".into()))?;
+            .ok_or_else(|| AproError::InvalidInput("projection not configured".into()))?;
         let pointer = self.load_surface_pointer(projection_id)?;
         let mut records = self.surface_records(&definition, &pointer)?;
         let mut watermarks = pointer.source_watermarks.clone();
@@ -1166,7 +1169,7 @@ impl Engine {
         {
             let generation = self
                 .get_surface(projection_id)?
-                .ok_or_else(|| AproError::Corrupt("pointer superficie senza generazione".into()))?;
+                .ok_or_else(|| AproError::Corrupt("surface pointer without generation".into()))?;
             return Ok(SurfaceBuildReport {
                 projection_id: projection_id.into(),
                 generation: generation.generation,
@@ -1195,7 +1198,7 @@ impl Engine {
         let _surface_writer = self.surface_writer.lock();
         let definition = self
             .load_surface_definition(projection_id)?
-            .ok_or_else(|| AproError::InvalidInput("proiezione non configurata".into()))?;
+            .ok_or_else(|| AproError::InvalidInput("projection not configured".into()))?;
         let pointer = self.load_surface_pointer(projection_id)?;
         let _shards: Vec<_> = self.shard_writers.iter().map(Mutex::lock).collect();
         let watermarks = self.catalog.read().shard_sequences.clone();
@@ -1207,7 +1210,7 @@ impl Engine {
         )?;
         if rows.len() > self.config.max_surface_records {
             return Err(AproError::ResourceLimit(format!(
-                "rebuild supera il limite scan di {} record",
+                "rebuild exceeds the scan limit of {} records",
                 self.config.max_surface_records
             )));
         }
@@ -1286,7 +1289,7 @@ impl Engine {
         self.ensure_healthy()?;
         if limit == 0 || limit > self.config.limits.max_queue_depth {
             return Err(AproError::ResourceLimit(format!(
-                "limite TTL deve essere fra 1 e {}",
+                "TTL limit must be between 1 and {}",
                 self.config.limits.max_queue_depth
             )));
         }
@@ -1305,7 +1308,7 @@ impl Engine {
             if entry.expires_at_unix_ms > now_unix_ms
                 || key != ttl_key(entry.expires_at_unix_ms, &entry.identity)
             {
-                return Err(AproError::Corrupt("indice TTL incoerente".into()));
+                return Err(AproError::Corrupt("inconsistent TTL index".into()));
             }
             let shard = self.shard_for_partition(&entry.identity.partition_key());
             let _writer = self.shard_writers[shard as usize].lock();
@@ -1329,7 +1332,7 @@ impl Engine {
                     });
                 if retention_mode == EventRetentionMode::Delta {
                     return Err(AproError::Unsupported(
-                        "scadenza TTL su collection Delta richiede un generatore di delta dichiarato"
+                        "TTL expiration on Delta collection requires a declared delta generator"
                             .into(),
                     ));
                 }
@@ -1363,7 +1366,7 @@ impl Engine {
         self.ensure_healthy()?;
         if limit == 0 || limit > self.config.limits.max_batch_operations / 2 {
             return Err(AproError::ResourceLimit(format!(
-                "purge idempotenza deve essere fra 1 e {}",
+                "idempotency purge must be between 1 and {}",
                 self.config.limits.max_batch_operations / 2
             )));
         }
@@ -1383,7 +1386,7 @@ impl Engine {
                 decode_logical(LogicalFrameKind::IdempotencyExpiry, &bytes)?;
             if expiry.expires_at_unix_ms > now_unix_ms {
                 return Err(AproError::Corrupt(
-                    "indice idempotenza fuori dall'intervallo temporale".into(),
+                    "idempotency index out of time range".into(),
                 ));
             }
             let current = self
@@ -1442,7 +1445,7 @@ impl Engine {
             .min(self.config.limits.max_batch_operations);
         if request.max_records == 0 || request.max_records > claim_limit {
             return Err(AproError::ResourceLimit(format!(
-                "claim deve richiedere fra 1 e {} record",
+                "claim must request between 1 and {} records",
                 claim_limit
             )));
         }
@@ -1450,7 +1453,7 @@ impl Engine {
             || request.lease_duration > self.config.max_lease_duration
         {
             return Err(AproError::InvalidInput(
-                "durata lease nulla o superiore al massimo configurato".into(),
+                "lease duration is zero or exceeds the maximum configured".into(),
             ));
         }
         self.ensure_workflow_retention(&request.scope.collection_key())?;
@@ -1473,7 +1476,7 @@ impl Engine {
             deadlines.retain(|_, deadline| *deadline > instant_now);
             if deadlines.len().saturating_add(request.max_records) > self.config.max_active_leases {
                 return Err(AproError::Backpressure(
-                    "limite lease attivi nel processo raggiunto".into(),
+                    "active lease limit reached in process".into(),
                 ));
             }
         }
@@ -1493,7 +1496,7 @@ impl Engine {
         let lease_ms = duration_millis(request.lease_duration)?;
         let deadline = now
             .checked_add(lease_ms)
-            .ok_or_else(|| AproError::ResourceLimit("deadline lease oltre u64".into()))?;
+            .ok_or_else(|| AproError::ResourceLimit("lease deadline exceeds u64".into()))?;
         let mut lease_ids = Vec::with_capacity(candidates.len());
         let mutations = candidates
             .into_iter()
@@ -1505,7 +1508,7 @@ impl Engine {
                     .workflow
                     .fencing_token
                     .checked_add(1)
-                    .ok_or_else(|| AproError::ResourceLimit("fencing token esaurito".into()))?;
+                    .ok_or_else(|| AproError::ResourceLimit("fencing token exhausted".into()))?;
                 let workflow = WorkflowDescriptor {
                     state: "leased".into(),
                     attempt: record.workflow.attempt.saturating_add(1),
@@ -1526,7 +1529,7 @@ impl Engine {
         let instant_deadline = Instant::now()
             .checked_add(request.lease_duration)
             .ok_or_else(|| {
-                AproError::ResourceLimit("deadline monotona lease oltre Instant".into())
+                AproError::ResourceLimit("monotonic lease deadline exceeds Instant".into())
             })?;
         {
             let mut deadlines = self.lease_deadlines.lock();
@@ -1547,7 +1550,7 @@ impl Engine {
     ) -> Result<WorkflowMutationResult> {
         if extension.is_zero() || extension > self.config.max_lease_duration {
             return Err(AproError::InvalidInput(
-                "estensione lease nulla o superiore al massimo configurato".into(),
+                "lease extension is zero or exceeds the configured maximum".into(),
             ));
         }
         let now = now_unix_ms()?;
@@ -1576,7 +1579,7 @@ impl Engine {
         let current = self.active_lease_record(identity, lease, now)?;
         let deadline = now
             .checked_add(duration_millis(extension)?)
-            .ok_or_else(|| AproError::ResourceLimit("deadline lease oltre u64".into()))?;
+            .ok_or_else(|| AproError::ResourceLimit("lease deadline exceeds u64".into()))?;
         let mut workflow = current.workflow.clone();
         workflow.lease_deadline_unix_ms = Some(deadline);
         let receipt = self.commit_workflow_record_locked(
@@ -1591,7 +1594,7 @@ impl Engine {
             },
         )?;
         let instant_deadline = Instant::now().checked_add(extension).ok_or_else(|| {
-            AproError::ResourceLimit("deadline monotona lease oltre Instant".into())
+            AproError::ResourceLimit("monotonic lease deadline exceeds Instant".into())
         })?;
         self.lease_deadlines
             .lock()
@@ -1716,7 +1719,7 @@ impl Engine {
         }
         let current = self
             .get(identity)?
-            .ok_or_else(|| AproError::InvalidInput("record da pubblicare non presente".into()))?;
+            .ok_or_else(|| AproError::InvalidInput("record to publish not found".into()))?;
         if current.workflow.state == "published" {
             let receipt = self.receipt_for_version(current.version, durability)?;
             if let Some(context) = &context {
@@ -1726,7 +1729,7 @@ impl Engine {
         }
         if current.workflow.state != "completed" {
             return Err(AproError::Conflict(format!(
-                "Publish richiede completed, stato corrente {}",
+                "Publish requires state 'completed', current state {}",
                 current.workflow.state
             )));
         }
@@ -1755,11 +1758,11 @@ impl Engine {
         self.ensure_healthy()?;
         if consumer.is_empty() || consumer.len() > 255 {
             return Err(AproError::InvalidInput(
-                "consumer vuoto o oltre 255 byte".into(),
+                "consumer is empty or exceeds 255 bytes".into(),
             ));
         }
         if shard >= self.config.shards {
-            return Err(AproError::InvalidInput("shard fuori intervallo".into()));
+            return Err(AproError::InvalidInput("shard is out of range".into()));
         }
         let _catalog_writer = self.catalog_writer.lock();
         let mut updated = self.catalog.read().clone();
@@ -1767,27 +1770,27 @@ impl Engine {
         let policy = updated
             .collections
             .get(&collection_key)
-            .ok_or_else(|| AproError::InvalidInput("collection non configurata".into()))?;
+            .ok_or_else(|| AproError::InvalidInput("collection is not configured".into()))?;
         if !policy
             .required_consumers
             .iter()
             .any(|name| name == consumer)
         {
             return Err(AproError::InvalidInput(format!(
-                "consumer obbligatorio non dichiarato: {consumer}"
+                "required consumer not declared: {consumer}"
             )));
         }
         let latest = updated.shard_sequences.get(&shard).copied().unwrap_or(0);
         if sequence > latest {
             return Err(AproError::InvalidInput(format!(
-                "watermark {sequence} oltre la sequence {latest}"
+                "watermark {sequence} exceeds sequence {latest}"
             )));
         }
         let key = consumer_watermark_key(&collection_key, shard, consumer)?;
         let current = updated.consumer_watermarks.get(&key).copied().unwrap_or(0);
         if sequence < current {
             return Err(AproError::Conflict(format!(
-                "watermark consumer non monotono: {sequence} < {current}"
+                "consumer watermark not monotonic: {sequence} < {current}"
             )));
         }
         updated.consumer_watermarks.insert(key, sequence);
@@ -1812,22 +1815,22 @@ impl Engine {
         self.ensure_healthy()?;
         if max_events == 0 || max_events > self.config.limits.max_batch_operations / 2 {
             return Err(AproError::ResourceLimit(format!(
-                "GC eventi deve essere fra 1 e {}",
+                "GC events must be between 1 and {}",
                 self.config.limits.max_batch_operations / 2
             )));
         }
         if shard >= self.config.shards {
-            return Err(AproError::InvalidInput("shard fuori intervallo".into()));
+            return Err(AproError::InvalidInput("shard is out of range".into()));
         }
         let collection_key = collection.collection_key();
         let catalog = self.catalog.read().clone();
         let policy = catalog
             .collections
             .get(&collection_key)
-            .ok_or_else(|| AproError::InvalidInput("collection non configurata".into()))?;
+            .ok_or_else(|| AproError::InvalidInput("collection is not configured".into()))?;
         if policy.required_consumers.is_empty() {
             return Err(AproError::Unsupported(
-                "GC eventi richiede almeno un consumer obbligatorio".into(),
+                "Event GC requires at least one mandatory consumer".into(),
             ));
         }
         let mut safe_watermark = u64::MAX;
@@ -1931,7 +1934,7 @@ impl Engine {
         }
         if mutations.len() > self.config.limits.max_batch_operations {
             return Err(AproError::ResourceLimit(format!(
-                "batch con {} operazioni, massimo {}",
+                "batch with {} operations, maximum {}",
                 mutations.len(),
                 self.config.limits.max_batch_operations
             )));
@@ -1944,12 +1947,12 @@ impl Engine {
             identity.validate(&self.config.limits)?;
             if identity.partition_key() != first_partition {
                 return Err(AproError::InvalidInput(
-                    "AtomicBatch richiede una sola partizione".into(),
+                    "AtomicBatch requires single partition".into(),
                 ));
             }
             if !identities.insert(identity.clone()) {
                 return Err(AproError::InvalidInput(
-                    "AtomicBatch non accetta due mutazioni della stessa identità".into(),
+                    "AtomicBatch does not accept multiple mutations of the same identity".into(),
                 ));
             }
             estimated_bytes = estimated_bytes.saturating_add(identity.storage_key().len());
@@ -1961,7 +1964,7 @@ impl Engine {
         }
         if estimated_bytes > self.config.limits.max_batch_bytes {
             return Err(AproError::ResourceLimit(format!(
-                "batch stimato a {estimated_bytes} byte, massimo {}",
+                "batch estimated at {estimated_bytes} bytes, maximum {}",
                 self.config.limits.max_batch_bytes
             )));
         }
@@ -2000,7 +2003,7 @@ impl Engine {
         let head: HeadPointer = decode_logical(LogicalFrameKind::Head, &head_bytes)?;
         if head.identity != *identity {
             return Err(AproError::Corrupt(
-                "head associata a identità diversa".into(),
+                "head is associated with a different identity".into(),
             ));
         }
         if head.tombstone {
@@ -2016,11 +2019,11 @@ impl Engine {
             return Ok(None);
         }
         let mut descriptor = self.load_radial_descriptor(identity)?.ok_or_else(|| {
-            AproError::Corrupt("record corrente senza descrittore radiale".into())
+            AproError::Corrupt("current record is missing a radial descriptor".into())
         })?;
         if descriptor.canonical_version != record.version {
             return Err(AproError::Corrupt(
-                "record e descrittore radiale divergono".into(),
+                "record and radial descriptor diverge".into(),
             ));
         }
         descriptor.access_frequency_estimate =
@@ -2095,7 +2098,7 @@ impl Engine {
             None => self
                 .backend
                 .get(StorageSpace::Versions, &key)?
-                .ok_or_else(|| AproError::Corrupt("versione immutabile mancante".into()))?,
+                .ok_or_else(|| AproError::Corrupt("missing immutable version".into()))?,
         };
         let dictionary = self
             .compression_manager
@@ -2110,7 +2113,7 @@ impl Engine {
         )?;
         if record.identity != *identity || record.version != version {
             return Err(AproError::Corrupt(
-                "versione immutabile non corrisponde al riferimento".into(),
+                "immutable version does not match the reference".into(),
             ));
         }
         if !cache_hit
@@ -2144,14 +2147,15 @@ impl Engine {
     ) -> Result<Vec<ChangeEvent>> {
         self.ensure_healthy()?;
         if shard >= self.config.shards {
-            return Err(AproError::InvalidInput("shard fuori intervallo".into()));
+            // Check if the shard is out of range
+            return Err(AproError::InvalidInput("shard out of range".into()));
         }
         if limit == 0 {
             return Ok(Vec::new());
         }
         if limit > self.config.limits.max_queue_depth {
             return Err(AproError::ResourceLimit(format!(
-                "limite change stream {limit}, massimo {}",
+                "change stream limit {limit} exceeds maximum of {}",
                 self.config.limits.max_queue_depth
             )));
         }
@@ -2164,7 +2168,7 @@ impl Engine {
             .unwrap_or(0);
         if after_sequence > latest {
             return Err(AproError::InvalidInput(format!(
-                "watermark change stream {after_sequence} oltre la sequence {latest}"
+                "change stream watermark {after_sequence} exceeds latest sequence {latest}"
             )));
         }
         let scan_limit = limit.saturating_add(self.config.limits.max_batch_operations);
@@ -2182,7 +2186,7 @@ impl Engine {
             && events.first().map(|event| event.version.sequence) != Some(expected)
         {
             return Err(AproError::ChangeLogGap(format!(
-                "richiesta sequence {expected}, primo evento disponibile {:?}, latest {latest}",
+                "requested sequence {expected}, first available event sequence {:?}, latest {latest}",
                 events.first().map(|event| event.version.sequence)
             )));
         }
@@ -2198,7 +2202,7 @@ impl Engine {
                 .is_some_and(|(previous, next)| previous.batch_id == next.batch_id)
             {
                 return Err(AproError::InvalidInput(
-                    "watermark nel mezzo di un AtomicBatch".into(),
+                    "watermark is in the middle of an AtomicBatch".into(),
                 ));
             }
         }
@@ -2209,7 +2213,7 @@ impl Engine {
         self.ensure_healthy()?;
         let _catalog_writer = self.catalog_writer.lock();
         let mut updated = self.catalog.read().clone();
-        updated.generation = updated.generation.saturating_add(1);
+        updated.generation = updated.generation.saturating_add(1); // Increment catalog generation for sync consistency
         updated.durable_watermarks = updated.shard_sequences.clone();
         let mut batch = StorageBatch::with_capacity(1);
         batch.put(
@@ -2238,7 +2242,7 @@ impl Engine {
             || request.query.iter().any(|value| !value.is_finite())
         {
             return Err(AproError::InvalidInput(
-                "limiti o query VectorExact non validi".into(),
+                "Invalid VectorExact limits or query".into(),
             ));
         }
         let scope = RecordIdentity::new(
@@ -2252,7 +2256,7 @@ impl Engine {
         let scan_limit = request
             .max_scan_records
             .checked_add(1)
-            .ok_or_else(|| AproError::ResourceLimit("limite scan vettoriale esaurito".into()))?;
+            .ok_or_else(|| AproError::ResourceLimit("vector scan limit exhausted".into()))?;
         // A brief all-shard barrier gives the derived columnar projection one
         // exact catalog generation. The locks are released before compute.
         let shard_guards: Vec<_> = self.shard_writers.iter().map(Mutex::lock).collect();
@@ -2263,7 +2267,7 @@ impl Engine {
         )?;
         if heads.len() > request.max_scan_records {
             return Err(AproError::ResourceLimit(format!(
-                "VectorExact richiede più di {} record; aumentare esplicitamente max_scan_records",
+                "VectorExact requires more than {} records; please explicitly increase max_scan_records",
                 request.max_scan_records
             )));
         }
@@ -2301,7 +2305,7 @@ impl Engine {
         let batch = ColumnarF32Batch::from_rows(&rows, request.query.len())?;
         if batch.byte_len() > self.config.compute.max_batch_bytes {
             return Err(AproError::ResourceLimit(format!(
-                "batch VectorExact di {} byte, massimo {}",
+                "VectorExact batch size {} bytes exceeds the maximum allowed {} bytes",
                 batch.byte_len(),
                 self.config.compute.max_batch_bytes
             )));
@@ -2309,7 +2313,7 @@ impl Engine {
         let source_watermark = self.catalog.read().generation;
         drop(shard_guards);
         let schema_version = u32::try_from(request.query.len())
-            .map_err(|_| AproError::ResourceLimit("dimensione vettore oltre u32".into()))?;
+            .map_err(|_| AproError::ResourceLimit("vector dimension exceeds u32 limit".into()))?;
         let result = self.compute_scheduler.execute(ComputeRequest {
             batch,
             query: request.query,
@@ -2327,7 +2331,7 @@ impl Engine {
             .into_iter()
             .map(|scored| {
                 let (identity, version, _) = candidates.get(scored.row).ok_or_else(|| {
-                    AproError::Compute("row VectorExact fuori dai candidati".into())
+                    AproError::Compute("VectorExact row is outside the candidate set".into())
                 })?;
                 Ok(VectorSearchHit {
                     identity: identity.clone(),
@@ -2379,7 +2383,7 @@ impl Engine {
             || error_class.is_some_and(|value| value.is_empty() || value.len() > 128)
         {
             return Err(AproError::InvalidInput(
-                "campi audit fuori dai limiti".into(),
+                "audit fields exceed allowed length limits".into(),
             ));
         }
         let _writer = self.audit_writer.lock();
@@ -2387,10 +2391,10 @@ impl Engine {
             .audit_sequence
             .load(Ordering::Acquire)
             .checked_add(1)
-            .ok_or_else(|| AproError::ResourceLimit("sequence audit esaurita".into()))?;
+            .ok_or_else(|| AproError::ResourceLimit("audit sequence exhausted".into()))?;
         let mut event_id = [0u8; 16];
         getrandom::fill(&mut event_id)
-            .map_err(|error| AproError::Storage(format!("RNG audit: {error}")))?;
+            .map_err(|error| AproError::Storage(format!("audit RNG error: {error}")))?;
         let event = AuditEvent {
             format_version: 1,
             sequence,
@@ -2429,7 +2433,7 @@ impl Engine {
         self.ensure_healthy()?;
         if limit == 0 || limit > self.config.limits.max_batch_operations {
             return Err(AproError::ResourceLimit(format!(
-                "pagina audit deve contenere 1..{} eventi",
+                "audit page must contain between 1 and {} events",
                 self.config.limits.max_batch_operations
             )));
         }
@@ -2450,7 +2454,7 @@ impl Engine {
             validate_audit_event(&event)?;
             if key != audit_key(event.sequence) {
                 return Err(AproError::Corrupt(
-                    "evento audit associato a una chiave diversa".into(),
+                    "audit event associated with a mismatched key".into(),
                 ));
             }
             events.push(event);
@@ -2467,7 +2471,7 @@ impl Engine {
         let temporary_estimate = stats.disk_bytes;
         if temporary_estimate > self.config.max_compaction_temporary_bytes {
             return Err(AproError::Backpressure(format!(
-                "compaction richiede circa {temporary_estimate} byte temporanei, limite {}",
+                "compaction requires approximately {temporary_estimate} bytes temporary storage, limit is {}",
                 self.config.max_compaction_temporary_bytes
             )));
         }
@@ -2512,7 +2516,7 @@ impl Engine {
         self.ensure_healthy()?;
         if destination.exists() {
             return Err(AproError::InvalidInput(format!(
-                "checkpoint già esistente: {}",
+                "checkpoint already exists at: {}",
                 destination.display()
             )));
         }
@@ -2586,7 +2590,7 @@ impl Engine {
         let destination = destination.as_ref();
         if destination.exists() {
             return Err(AproError::InvalidInput(format!(
-                "backup già esistente: {}",
+                "backup already exists: {}",
                 destination.display()
             )));
         }
@@ -2603,7 +2607,7 @@ impl Engine {
             || verified_catalog.durable_watermarks != checkpoint.durable_watermarks
         {
             return Err(AproError::Corrupt(
-                "checkpoint riaperto con catalog generation o watermark divergenti".into(),
+                "checkpoint reopened with divergent catalog generation or watermark".into(),
             ));
         }
         let files = inventory_files(&data_path)?;
@@ -2635,7 +2639,7 @@ impl Engine {
         let bytes = fs::read(path.join("backup-manifest.json")).map_err(io_storage_error)?;
         if bytes.len() > 16 * 1024 * 1024 {
             return Err(AproError::ResourceLimit(
-                "manifest backup oltre 16 MiB".into(),
+                "backup manifest exceeds 16 MiB".into(),
             ));
         }
         let manifest: BackupManifest = serde_json::from_slice(&bytes)
@@ -2646,13 +2650,13 @@ impl Engine {
             || manifest.files.len() > 1_000_000
         {
             return Err(AproError::IncompatibleFormat(
-                "versione, backend o cardinalità manifest backup non supportati".into(),
+                "unsupported backup manifest version, backend, or number of files".into(),
             ));
         }
         let observed = inventory_files(&path.join("data"))?;
         if observed != manifest.files {
             return Err(AproError::Corrupt(
-                "inventario o checksum backup divergente dal manifest".into(),
+                "backup inventory or checksum differs from manifest".into(),
             ));
         }
         Ok(manifest)
@@ -2667,14 +2671,14 @@ impl Engine {
         let destination = destination.as_ref();
         if destination.exists() {
             return Err(AproError::InvalidInput(format!(
-                "destinazione restore già esistente: {}",
+                "restore destination already exists: {}",
                 destination.display()
             )));
         }
         let manifest = Self::verify_backup(backup)?;
         if manifest.encrypted != config.encryption.is_some() {
             return Err(AproError::IncompatibleFormat(
-                "configurazione cifratura restore diversa dal backup".into(),
+                "restore encryption configuration differs from the backup".into(),
             ));
         }
         if manifest.encrypted {
@@ -2689,7 +2693,7 @@ impl Engine {
                 .any(|required| !available.contains(required))
             {
                 return Err(AproError::Encryption(
-                    "keyring restore non contiene tutti i key id del backup".into(),
+                    "restore keyring does not contain all backup key IDs".into(),
                 ));
             }
         }
@@ -2709,7 +2713,7 @@ impl Engine {
             || catalog.durable_watermarks != manifest.durable_watermarks
         {
             return Err(AproError::Corrupt(
-                "restore con catalog generation o watermark divergenti".into(),
+                "restore with divergent catalog generation or watermarks".into(),
             ));
         }
         let verification = restored.verify()?;
@@ -2730,7 +2734,7 @@ impl Engine {
         self.ensure_healthy()?;
         if confirmation != REPAIR_DERIVED_CONFIRMATION {
             return Err(AproError::InvalidInput(format!(
-                "repair richiede conferma esatta {REPAIR_DERIVED_CONFIRMATION}"
+                "repair requires the exact confirmation string {REPAIR_DERIVED_CONFIRMATION}"
             )));
         }
         let destination = destination.as_ref();
@@ -2746,7 +2750,7 @@ impl Engine {
         )?;
         if definitions.len() > repaired.config.max_surfaces {
             return Err(AproError::ResourceLimit(
-                "numero superfici oltre il limite repair".into(),
+                "number of surfaces exceeds repair limit".into(),
             ));
         }
         for (_, bytes) in definitions {
@@ -2769,14 +2773,14 @@ impl Engine {
                 let record = self.get_version(&head.identity, head.version)?;
                 if record.tombstone != head.tombstone {
                     return Err(AproError::Corrupt(
-                        "head e versione divergono sul tombstone".into(),
+                        "head and version differ on tombstone flag".into(),
                     ));
                 }
                 let radial = self.load_radial_descriptor(&head.identity)?;
                 if head.tombstone {
                     if radial.is_some() {
                         return Err(AproError::Corrupt(
-                            "tombstone con descrittore radiale corrente".into(),
+                            "tombstone with current radial descriptor present".into(),
                         ));
                     }
                 } else if radial
@@ -2785,18 +2789,18 @@ impl Engine {
                     != Some(head.version)
                 {
                     return Err(AproError::Corrupt(
-                        "descrittore radiale assente o su versione errata".into(),
+                        "radial descriptor missing or on incorrect version".into(),
                     ));
                 }
                 if let Some(expires_at) = record.expires_at_unix_ms {
                     let entry = self
                         .backend
                         .get(StorageSpace::Ttl, &ttl_key(expires_at, &head.identity))?
-                        .ok_or_else(|| AproError::Corrupt("indice TTL mancante".into()))?;
+                        .ok_or_else(|| AproError::Corrupt("missing TTL index".into()))?;
                     let entry: TtlEntry = decode_logical(LogicalFrameKind::Ttl, &entry)?;
                     if entry.identity != head.identity || entry.version != head.version {
                         return Err(AproError::Corrupt(
-                            "indice TTL riferito a record/versione errati".into(),
+                            "TTL index refers to incorrect record/version".into(),
                         ));
                     }
                 }
@@ -2804,12 +2808,12 @@ impl Engine {
                     let workflow = self
                         .backend
                         .get(StorageSpace::Workflow, &workflow_key(&record)?)?
-                        .ok_or_else(|| AproError::Corrupt("indice workflow mancante".into()))?;
+                        .ok_or_else(|| AproError::Corrupt("missing workflow index".into()))?;
                     let workflow: WorkflowIndexEntry =
                         decode_logical(LogicalFrameKind::Workflow, &workflow)?;
                     if workflow.identity != head.identity || workflow.version != head.version {
                         return Err(AproError::Corrupt(
-                            "indice workflow riferito a record/versione errati".into(),
+                            "workflow index refers to incorrect record/version".into(),
                         ));
                     }
                 }
@@ -2831,7 +2835,7 @@ impl Engine {
                     }
                     if event.version.shard_id != shard || event.version.sequence <= observed {
                         return Err(AproError::Corrupt(format!(
-                            "evento shard {shard} fuori ordine o instradato altrove"
+                            "event in shard {shard} out of order or routed elsewhere"
                         )));
                     }
                     observed = event.version.sequence;
@@ -2841,7 +2845,7 @@ impl Engine {
             let declared = catalog.shard_sequences.get(&shard).copied().unwrap_or(0);
             if observed != 0 && observed != declared {
                 return Err(AproError::Corrupt(format!(
-                    "shard {shard}: catalogo {declared}, ultimo evento {observed}"
+                    "shard {shard}: catalog has {declared}, last event is {observed}"
                 )));
             }
             max_sequence_by_shard.insert(shard, observed);
@@ -2853,7 +2857,7 @@ impl Engine {
         )?;
         if definitions.len() > self.config.max_surfaces {
             return Err(AproError::ResourceLimit(
-                "numero superfici oltre il limite verificabile".into(),
+                "number of surfaces exceeds verifiable limit".into(),
             ));
         }
         for (_, bytes) in &definitions {
@@ -2867,7 +2871,7 @@ impl Engine {
                     .is_some_and(|current| !pointer.retained_generations.contains(&current))
             {
                 return Err(AproError::Corrupt(
-                    "retention o current generation superficie incoerenti".into(),
+                    "surface retention or current generation inconsistent".into(),
                 ));
             }
             for generation in &pointer.retained_generations {
@@ -2887,7 +2891,7 @@ impl Engine {
                         != Some(*sequence)
                 {
                     return Err(AproError::Corrupt(
-                        "watermark superficie e catalogo divergono".into(),
+                        "surface watermark and catalog diverge".into(),
                     ));
                 }
             }
@@ -2899,7 +2903,7 @@ impl Engine {
         )?;
         if dictionaries.len() > self.config.max_dictionaries {
             return Err(AproError::ResourceLimit(
-                "numero dizionari oltre il limite verificabile".into(),
+                "number of dictionaries exceeds verifiable limit".into(),
             ));
         }
         for (key, bytes) in &dictionaries {
@@ -2912,7 +2916,7 @@ impl Engine {
                 || crc32fast::hash(&dictionary.bytes) != dictionary.checksum
             {
                 return Err(AproError::Corrupt(
-                    "dizionario con chiave, dimensione o checksum incoerenti".into(),
+                    "dictionary with inconsistent key, size, or checksum".into(),
                 ));
             }
         }
@@ -2926,7 +2930,7 @@ impl Engine {
                 validate_audit_event(&event)?;
                 if event.sequence != expected_audit_sequence || key != audit_key(event.sequence) {
                     return Err(AproError::Corrupt(
-                        "sequence o chiave evento audit incoerente".into(),
+                        "inconsistent audit event sequence or key".into(),
                     ));
                 }
                 expected_audit_sequence = expected_audit_sequence.saturating_add(1);
@@ -2937,7 +2941,7 @@ impl Engine {
             != self.audit_sequence.load(Ordering::Acquire)
         {
             return Err(AproError::Corrupt(
-                "stato e numero eventi audit divergono".into(),
+                "audit state and event count diverge".into(),
             ));
         }
         Ok(VerificationReport {
@@ -2967,7 +2971,7 @@ impl Engine {
                 let record = self.get_version(&head.identity, head.version)?;
                 if record.tombstone != head.tombstone {
                     return Err(AproError::Corrupt(
-                        "repair: head e versione divergono".into(),
+                        "repair: head and version mismatch".into(),
                     ));
                 }
                 if !record.tombstone {
@@ -2978,7 +2982,7 @@ impl Engine {
                             &version_key(&record.identity, record.version),
                         )?
                         .ok_or_else(|| {
-                            AproError::Corrupt("repair: versione canonica mancante".into())
+                            AproError::Corrupt("repair: canonical version missing".into())
                         })?
                         .len();
                     let radial_policy = self
@@ -3127,7 +3131,7 @@ impl Engine {
             .is_some_and(|policy| policy.retention_mode == EventRetentionMode::Delta)
         {
             return Err(AproError::Unsupported(
-                "workflow su collection Delta richiede delta di transizione dichiarati".into(),
+                "workflow on a Delta collection requires declared transition deltas".into(),
             ));
         }
         Ok(())
@@ -3142,8 +3146,7 @@ impl Engine {
             .is_some_and(|policy| policy.retention_mode == EventRetentionMode::Delta)
         {
             return Err(AproError::Unsupported(
-                "builder generico non supporta una sorgente Delta senza applicatore dichiarato"
-                    .into(),
+                "generic builder does not support a Delta source without a declared applier".into(),
             ));
         }
         Ok(())
@@ -3151,7 +3154,7 @@ impl Engine {
 
     fn load_dictionary(&self, id: u64) -> Result<Arc<CompressionDictionary>> {
         if id == 0 {
-            return Err(AproError::Corrupt("id dizionario zero".into()));
+            return Err(AproError::Corrupt("dictionary ID zero".into()));
         }
         if let Some(dictionary) = self.dictionaries.read().get(&id).cloned() {
             return Ok(dictionary);
@@ -3159,7 +3162,7 @@ impl Engine {
         let bytes = self
             .backend
             .get(StorageSpace::Compression, &compression_dictionary_key(id))?
-            .ok_or_else(|| AproError::Corrupt(format!("dizionario {id} mancante")))?;
+            .ok_or_else(|| AproError::Corrupt(format!("dictionary {id} missing")))?;
         let dictionary: CompressionDictionary =
             decode_logical(LogicalFrameKind::CompressionDictionary, &bytes)?;
         if dictionary.id != id
@@ -3168,7 +3171,7 @@ impl Engine {
             || crc32fast::hash(&dictionary.bytes) != dictionary.checksum
         {
             return Err(AproError::Corrupt(format!(
-                "dizionario {id} non valido o con checksum errato"
+                "dictionary {id} is invalid or has a checksum mismatch"
             )));
         }
         let dictionary = Arc::new(dictionary);
@@ -3194,11 +3197,11 @@ impl Engine {
         let bytes = self
             .backend
             .get(StorageSpace::Surfaces, &surface_pointer_key(projection_id))?
-            .ok_or_else(|| AproError::Corrupt("definizione senza pointer superficie".into()))?;
+            .ok_or_else(|| AproError::Corrupt("definition without surface pointer".into()))?;
         let pointer: SurfacePointer = decode_logical(LogicalFrameKind::SurfacePointer, &bytes)?;
         if pointer.projection_id != projection_id {
             return Err(AproError::Corrupt(
-                "pointer associato a una proiezione diversa".into(),
+                "pointer associated with different projection".into(),
             ));
         }
         Ok(pointer)
@@ -3215,11 +3218,11 @@ impl Engine {
                 StorageSpace::Surfaces,
                 &surface_generation_key(projection_id, generation),
             )?
-            .ok_or_else(|| AproError::Corrupt("generazione superficie mancante".into()))?;
+            .ok_or_else(|| AproError::Corrupt("surface generation missing".into()))?;
         let value: SurfaceGeneration = decode_logical(LogicalFrameKind::SurfaceGeneration, &bytes)?;
         if value.projection_id != projection_id || value.generation != generation {
             return Err(AproError::Corrupt(
-                "generazione superficie associata a un id diverso".into(),
+                "surface generation associated with a different id".into(),
             ));
         }
         Ok(value)
@@ -3238,13 +3241,13 @@ impl Engine {
             || generation.source_watermarks != pointer.source_watermarks
         {
             return Err(AproError::Corrupt(
-                "pointer e generazione superficie divergono".into(),
+                "pointer and surface generation diverge".into(),
             ));
         }
         let records = decode_surface_payload(generation.format, &generation.serialized)?;
         if records.len() != generation.record_count {
             return Err(AproError::Corrupt(
-                "conteggio record superficie incoerente".into(),
+                "surface record count inconsistent".into(),
             ));
         }
         Ok(records
@@ -3269,13 +3272,13 @@ impl Engine {
             ChangeBody::SelfContained { record } => (**record).clone(),
             ChangeBody::Delta { .. } => {
                 return Err(AproError::Unsupported(
-                    "superficie generica non può applicare un delta di dominio".into(),
+                    "generic surface cannot apply a domain delta".into(),
                 ));
             }
         };
         if record.identity != identity || record.version != event.version {
             return Err(AproError::Corrupt(
-                "evento e record sorgente della superficie divergono".into(),
+                "surface event and source record diverge".into(),
             ));
         }
         if surface_accepts(definition, &record, now_unix_ms()?) {
@@ -3300,7 +3303,7 @@ impl Engine {
         pointer.next_generation = pointer
             .next_generation
             .checked_add(1)
-            .ok_or_else(|| AproError::ResourceLimit("generation superficie esaurita".into()))?;
+            .ok_or_else(|| AproError::ResourceLimit("exhausted surface generation".into()))?;
         pointer.current_generation = Some(generation_id);
         pointer.source_watermarks = source_watermarks.clone();
         pointer.retained_generations.push(generation_id);
@@ -3321,14 +3324,14 @@ impl Engine {
             let latest = catalog.shard_sequences.get(shard).copied().unwrap_or(0);
             if *sequence > latest {
                 return Err(AproError::Conflict(format!(
-                    "watermark superficie {sequence} oltre latest {latest} per shard {shard}"
+                    "surface watermark {sequence} beyond latest {latest} for shard {shard}"
                 )));
             }
             let key = consumer_watermark_key(&collection_key, *shard, &consumer)?;
             let previous = catalog.consumer_watermarks.get(&key).copied().unwrap_or(0);
             if *sequence < previous {
                 return Err(AproError::Conflict(
-                    "watermark superficie non monotono".into(),
+                    "non-monotonic surface watermark".into(),
                 ));
             }
             catalog.consumer_watermarks.insert(key, *sequence);
@@ -3389,7 +3392,7 @@ impl Engine {
             let entry: WorkflowIndexEntry = decode_logical(LogicalFrameKind::Workflow, &bytes)?;
             if entry.state != state {
                 return Err(AproError::Corrupt(
-                    "indice workflow con stato incoerente".into(),
+                    "workflow index with inconsistent state".into(),
                 ));
             }
             let Some(head) = self.current_head(&entry.identity)? else {
@@ -3418,7 +3421,7 @@ impl Engine {
         let lease_id = record
             .workflow
             .lease_id
-            .ok_or_else(|| AproError::Corrupt("record leased senza lease id".into()))?;
+            .ok_or_else(|| AproError::Corrupt("leased record without lease ID".into()))?;
         if let Some(deadline) = self
             .lease_deadlines
             .lock()
@@ -3430,7 +3433,7 @@ impl Engine {
         let persisted = record
             .workflow
             .lease_deadline_unix_ms
-            .ok_or_else(|| AproError::Corrupt("record leased senza deadline".into()))?;
+            .ok_or_else(|| AproError::Corrupt("leased record without deadline".into()))?;
         Ok(now_unix_ms
             >= persisted.saturating_add(duration_millis(self.config.lease_recovery_safety_margin)?))
     }
@@ -3443,17 +3446,17 @@ impl Engine {
     ) -> Result<RecordEnvelope> {
         let record = self
             .get(identity)?
-            .ok_or_else(|| AproError::InvalidInput("record leased non presente".into()))?;
+            .ok_or_else(|| AproError::InvalidInput("leased record not present".into()))?;
         if record.workflow.state != "leased"
             || record.workflow.lease_id != Some(lease.lease_id)
             || record.workflow.fencing_token != lease.fencing_token
         {
             return Err(AproError::Conflict(
-                "lease id o fencing token obsoleto".into(),
+                "lease ID or fencing token outdated".into(),
             ));
         }
         if self.lease_expired(&record, now_unix_ms)? {
-            return Err(AproError::Conflict("lease scaduto".into()));
+            return Err(AproError::Conflict("lease expired".into()));
         }
         Ok(record)
     }
@@ -3485,7 +3488,7 @@ impl Engine {
     ) -> Result<WorkflowMutationResult> {
         if receipts.len() != 1 {
             return Err(AproError::Corrupt(
-                "outcome idempotente workflow senza una receipt".into(),
+                "idempotent workflow result has no receipt".into(),
             ));
         }
         self.workflow_result(receipts.remove(0))
@@ -3498,7 +3501,7 @@ impl Engine {
                 StorageSpace::Events,
                 &event_key(receipt.version.shard_id, receipt.version.sequence),
             )?
-            .ok_or_else(|| AproError::Corrupt("evento workflow appena scritto mancante".into()))?;
+            .ok_or_else(|| AproError::Corrupt("just written workflow event missing".into()))?;
         let event: ChangeEvent = decode_logical(LogicalFrameKind::Change, &event_bytes)?;
         let identity = identity_from_event(&event)?;
         let record = self.get_version(&identity, receipt.version)?;
@@ -3549,7 +3552,7 @@ impl Engine {
         let record: IdempotencyRecord = decode_logical(LogicalFrameKind::Idempotency, &bytes)?;
         if record.scope != context.scope || record.key_hash != context.key_hash {
             return Err(AproError::Corrupt(
-                "record idempotenza associato a una chiave diversa".into(),
+                "idempotency record is associated with a different key".into(),
             ));
         }
         if record.expires_at_unix_ms <= now_unix_ms {
@@ -3557,7 +3560,7 @@ impl Engine {
         }
         if record.request_fingerprint != context.request_fingerprint {
             return Err(AproError::Conflict(
-                "idempotency key riusata per una richiesta diversa".into(),
+                "idempotency key reused for a different request".into(),
             ));
         }
         Ok(Some(record.receipts))
@@ -3582,7 +3585,9 @@ impl Engine {
             .transpose()?;
         let expires_at_unix_ms = now_unix_ms
             .checked_add(duration_millis(self.config.idempotency_retention)?)
-            .ok_or_else(|| AproError::ResourceLimit("scadenza idempotenza oltre u64".into()))?;
+            .ok_or_else(|| {
+                AproError::ResourceLimit("idempotency expiration exceeds u64 limit".into())
+            })?;
         let record = IdempotencyRecord {
             scope: context.scope.clone(),
             key_hash: context.key_hash,
@@ -3634,18 +3639,18 @@ impl Engine {
                     StorageSpace::Events,
                     &event_key(receipt.version.shard_id, receipt.version.sequence),
                 )?
-                .ok_or_else(|| AproError::Corrupt("evento Claim mancante".into()))?;
+                .ok_or_else(|| AproError::Corrupt("missing Claim event".into()))?;
             let event: ChangeEvent = decode_logical(LogicalFrameKind::Change, &event_bytes)?;
             let identity = identity_from_event(&event)?;
             let record = self.get_version(&identity, receipt.version)?;
             let lease_id = record
                 .workflow
                 .lease_id
-                .ok_or_else(|| AproError::Corrupt("risultato Claim senza lease id".into()))?;
+                .ok_or_else(|| AproError::Corrupt("Claim result missing lease id".into()))?;
             let lease_deadline_unix_ms = record
                 .workflow
                 .lease_deadline_unix_ms
-                .ok_or_else(|| AproError::Corrupt("risultato Claim senza deadline".into()))?;
+                .ok_or_else(|| AproError::Corrupt("Claim result missing deadline".into()))?;
             if lease_deadline_unix_ms > server_time_unix_ms {
                 let remaining = Duration::from_millis(
                     lease_deadline_unix_ms.saturating_sub(server_time_unix_ms),
@@ -3688,13 +3693,13 @@ impl Engine {
                     decode_logical(LogicalFrameKind::Idempotency, &bytes)?;
                 if existing.scope != context.scope || existing.key_hash != context.key_hash {
                     return Err(AproError::Corrupt(
-                        "record idempotenza associato a una chiave diversa".into(),
+                        "idempotency record is associated with a different key".into(),
                     ));
                 }
                 if existing.expires_at_unix_ms > now {
                     if existing.request_fingerprint != context.request_fingerprint {
                         return Err(AproError::Conflict(
-                            "idempotency key riusata per una richiesta diversa".into(),
+                            "idempotency key reused for a different request".into(),
                         ));
                     }
                     return Ok(existing.receipts);
@@ -3706,7 +3711,7 @@ impl Engine {
         let mut next_sequence = catalog.shard_sequences.get(&shard).copied().unwrap_or(0);
         let first_sequence = next_sequence
             .checked_add(1)
-            .ok_or_else(|| AproError::ResourceLimit("sequence esaurita".into()))?;
+            .ok_or_else(|| AproError::ResourceLimit("sequence exhausted".into()))?;
         let batch_id = batch_id(catalog.epoch, shard, first_sequence);
         let mut storage = StorageBatch::with_capacity(mutations.len() * 8 + 4);
         let mut versions = Vec::with_capacity(mutations.len());
@@ -3725,7 +3730,7 @@ impl Engine {
             let previous_radial = self.load_radial_descriptor(&identity)?;
             next_sequence = next_sequence
                 .checked_add(1)
-                .ok_or_else(|| AproError::ResourceLimit("sequence esaurita".into()))?;
+                .ok_or_else(|| AproError::ResourceLimit("sequence exhausted".into()))?;
             let version = Version {
                 epoch: catalog.epoch,
                 shard_id: shard,
@@ -3805,7 +3810,7 @@ impl Engine {
             let logical_record_bytes = encode_logical(LogicalFrameKind::Record, &record)?;
             if logical_record_bytes.len() > self.config.limits.max_record_bytes {
                 return Err(AproError::ResourceLimit(format!(
-                    "record serializzato di {} byte, massimo {}",
+                    "serialized record of {} bytes, maximum {}",
                     logical_record_bytes.len(),
                     self.config.limits.max_record_bytes
                 )));
@@ -3844,7 +3849,7 @@ impl Engine {
             )?;
             if record_bytes.len() > self.config.limits.max_record_bytes {
                 return Err(AproError::ResourceLimit(format!(
-                    "record compresso incorniciato di {} byte, massimo {}",
+                    "compressed framed record of {} bytes, maximum {}",
                     record_bytes.len(),
                     self.config.limits.max_record_bytes
                 )));
@@ -3862,7 +3867,7 @@ impl Engine {
                 EventRetentionMode::Delta => {
                     let bytes = delta.ok_or_else(|| {
                         AproError::InvalidInput(
-                            "la collection Delta richiede un delta autosufficiente".into(),
+                            "Delta collection requires a self-contained delta".into(),
                         )
                     })?;
                     ChangeBody::Delta { bytes }
@@ -3872,7 +3877,7 @@ impl Engine {
                         encode_logical(LogicalFrameKind::Record, &record)?;
                     if self_contained_record_bytes.len() > policy.max_self_contained_event_bytes {
                         return Err(AproError::ResourceLimit(format!(
-                            "evento SelfContained di {} byte, massimo {}",
+                            "SelfContained event of {} bytes, maximum {}",
                             self_contained_record_bytes.len(),
                             policy.max_self_contained_event_bytes
                         )));
@@ -3979,7 +3984,7 @@ impl Engine {
                     layer_since_unix_ms: previous_radial
                         .as_ref()
                         .map_or(now, |descriptor| descriptor.layer_since_unix_ms),
-                    last_decision: "mutazione canonica: descrittore aggiornato".into(),
+                    last_decision: "canonical mutation: descriptor updated".into(),
                 };
                 storage.put(
                     StorageSpace::Radial,
@@ -4040,9 +4045,9 @@ impl Engine {
                 );
             }
             let retention_ms = duration_millis(self.config.idempotency_retention)?;
-            let expires_at_unix_ms = now
-                .checked_add(retention_ms)
-                .ok_or_else(|| AproError::ResourceLimit("scadenza idempotenza oltre u64".into()))?;
+            let expires_at_unix_ms = now.checked_add(retention_ms).ok_or_else(|| {
+                AproError::ResourceLimit("idempotency expiry exceeds u64 limit".into())
+            })?;
             let record = IdempotencyRecord {
                 scope: context.scope.clone(),
                 key_hash: context.key_hash,
@@ -4108,7 +4113,7 @@ impl Engine {
         let descriptor: RadialDescriptor = decode_logical(LogicalFrameKind::Radial, &bytes)?;
         if descriptor.identity != *identity {
             return Err(AproError::Corrupt(
-                "descrittore radiale associato a identità diversa".into(),
+                "radial descriptor is associated with a different identity".into(),
             ));
         }
         let policy = self
@@ -4187,7 +4192,7 @@ impl Engine {
                 });
         if result.is_err() {
             return Err(AproError::Backpressure(format!(
-                "budget inflight di {} byte esaurito",
+                "inflight budget of {} bytes exhausted",
                 self.config.limits.max_inflight_bytes
             )));
         }
@@ -4206,14 +4211,14 @@ impl Engine {
             && stats.disk_bytes.saturating_add(additional) > maximum
         {
             return Err(AproError::ResourceLimit(format!(
-                "quota dati {maximum} byte superata"
+                "data quota of {maximum} bytes exceeded"
             )));
         }
         if self.config.min_free_disk_bytes > 0 {
             ensure_available_space(
                 &self.config.path,
                 self.config.min_free_disk_bytes.saturating_add(additional),
-                "scrittura",
+                "write",
             )?;
         }
         Ok(())
@@ -4288,7 +4293,7 @@ impl Engine {
             let last_key = rows.last().map(|(key, _)| key.clone()).unwrap_or_default();
             if !first_page && last_key <= cursor {
                 return Err(AproError::Corrupt(
-                    "scan verify non avanza fra le pagine".into(),
+                    "verify scan does not advance between pages".into(),
                 ));
             }
             let full_page = rows.len() == page_size;
@@ -4296,7 +4301,7 @@ impl Engine {
                 visitor(key, value)?;
                 visited = visited
                     .checked_add(1)
-                    .ok_or_else(|| AproError::ResourceLimit("conteggio verify esaurito".into()))?;
+                    .ok_or_else(|| AproError::ResourceLimit("verify count exhausted".into()))?;
             }
             if !full_page {
                 break;
@@ -4310,7 +4315,7 @@ impl Engine {
     fn ensure_healthy(&self) -> Result<()> {
         if self.poisoned.load(Ordering::Acquire) {
             return Err(AproError::Storage(
-                "motore arrestato dopo un errore di persistenza".into(),
+                "engine halted after a persistence error".into(),
             ));
         }
         Ok(())
@@ -4391,20 +4396,20 @@ impl GroupCommitter {
         match self
             .sender
             .as_ref()
-            .ok_or_else(|| AproError::Storage("group commit arrestato".into()))?
+            .ok_or_else(|| AproError::Storage("group commit stopped".into()))?
             .try_send(request)
         {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
-                return Err(AproError::Backpressure("coda group commit piena".into()));
+                return Err(AproError::Backpressure("group commit queue full".into()));
             }
             Err(TrySendError::Disconnected(_)) => {
-                return Err(AproError::Storage("group commit non disponibile".into()));
+                return Err(AproError::Storage("group commit unavailable".into()));
             }
         }
         response_rx
             .recv()
-            .map_err(|_| AproError::Storage("risposta group commit interrotta".into()))?
+            .map_err(|_| AproError::Storage("group commit response interrupted".into()))?
             .map_err(AproError::Storage)
     }
 }
@@ -4432,7 +4437,7 @@ impl Drop for InflightGuard<'_> {
 fn inventory_files(root: &Path) -> Result<Vec<BackupFile>> {
     if !root.is_dir() {
         return Err(AproError::Corrupt(format!(
-            "directory dati backup assente: {}",
+            "backup data directory missing: {}",
             root.display()
         )));
     }
@@ -4445,7 +4450,7 @@ fn inventory_files(root: &Path) -> Result<Vec<BackupFile>> {
             let metadata = fs::symlink_metadata(&path).map_err(io_storage_error)?;
             if metadata.file_type().is_symlink() {
                 return Err(AproError::Corrupt(
-                    "un backup non può contenere link simbolici".into(),
+                    "a backup must not contain symbolic links".into(),
                 ));
             }
             let relative = path
@@ -4457,7 +4462,7 @@ fn inventory_files(root: &Path) -> Result<Vec<BackupFile>> {
             } else if metadata.is_file() {
                 if files.len() >= 1_000_000 {
                     return Err(AproError::ResourceLimit(
-                        "backup oltre un milione di file".into(),
+                        "backup contains more than one million files".into(),
                     ));
                 }
                 let (bytes, checksum) = hash_file(&path)?;
@@ -4468,7 +4473,7 @@ fn inventory_files(root: &Path) -> Result<Vec<BackupFile>> {
                 });
             } else {
                 return Err(AproError::Corrupt(
-                    "tipo filesystem non regolare nel backup".into(),
+                    "non-regular filesystem entry type found in backup".into(),
                 ));
             }
         }
@@ -4486,25 +4491,21 @@ fn normalized_safe_relative_path(path: &Path) -> Result<String> {
             Component::Normal(value) => {
                 let value = value
                     .to_str()
-                    .ok_or_else(|| AproError::IncompatibleFormat("path backup non UTF-8".into()))?;
+                    .ok_or_else(|| AproError::IncompatibleFormat("backup path not UTF-8".into()))?;
                 if value.is_empty() || value.contains(':') {
-                    return Err(AproError::Corrupt(
-                        "componente path backup non sicuro".into(),
-                    ));
+                    return Err(AproError::Corrupt("unsafe backup path component".into()));
                 }
                 components.push(value);
             }
             _ => {
                 return Err(AproError::Corrupt(
-                    "path backup assoluto o con traversal".into(),
+                    "backup path is absolute or contains traversal".into(),
                 ));
             }
         }
     }
     if components.is_empty() || components.len() > 64 {
-        return Err(AproError::ResourceLimit(
-            "profondità path backup non valida".into(),
-        ));
+        return Err(AproError::ResourceLimit("invalid backup path depth".into()));
     }
     Ok(components.join("/"))
 }
@@ -4513,7 +4514,7 @@ fn safe_path_from_manifest(relative: &str) -> Result<PathBuf> {
     let path = Path::new(relative);
     let normalized = normalized_safe_relative_path(path)?;
     if normalized != relative.replace('\\', "/") || relative.contains('\\') {
-        return Err(AproError::Corrupt("path manifest non canonico".into()));
+        return Err(AproError::Corrupt("manifest path is not canonical".into()));
     }
     Ok(path.to_path_buf())
 }
@@ -4530,7 +4531,7 @@ fn hash_file(path: &Path) -> Result<(u64, String)> {
         }
         bytes = bytes
             .checked_add(read as u64)
-            .ok_or_else(|| AproError::ResourceLimit("file backup oltre u64".into()))?;
+            .ok_or_else(|| AproError::ResourceLimit("backup file size exceeds u64".into()))?;
         hasher.update(&buffer[..read]);
     }
     Ok((bytes, hasher.finalize().to_hex().to_string()))
@@ -4538,10 +4539,10 @@ fn hash_file(path: &Path) -> Result<(u64, String)> {
 
 fn write_backup_manifest(root: &Path, manifest: &BackupManifest) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(manifest)
-        .map_err(|error| AproError::Storage(format!("serializzazione manifest: {error}")))?;
+        .map_err(|error| AproError::Storage(format!("manifest serialization: {error}")))?;
     if bytes.len() > 16 * 1024 * 1024 {
         return Err(AproError::ResourceLimit(
-            "manifest backup oltre 16 MiB".into(),
+            "backup manifest exceeds 16 MiB".into(),
         ));
     }
     let temporary = root.join("backup-manifest.json.tmp");
@@ -4587,12 +4588,12 @@ fn copy_inventory(source: &Path, destination: &Path, files: &[BackupFile]) -> Re
             hasher.update(&buffer[..read]);
             bytes = bytes
                 .checked_add(read as u64)
-                .ok_or_else(|| AproError::ResourceLimit("restore file oltre u64".into()))?;
+                .ok_or_else(|| AproError::ResourceLimit("restore file size exceeds u64".into()))?;
         }
         output.sync_all().map_err(io_storage_error)?;
         if bytes != expected.bytes || hasher.finalize().to_hex().as_str() != expected.blake3 {
             return Err(AproError::Corrupt(format!(
-                "file backup cambiato durante restore: {}",
+                "backup file changed during restore: {}",
                 expected.relative_path
             )));
         }
@@ -4611,7 +4612,7 @@ fn ensure_available_space(path: &Path, required: u64, operation: &str) -> Result
     let available = fs2::available_space(path).map_err(io_storage_error)?;
     if available < required {
         return Err(AproError::Backpressure(format!(
-            "spazio libero insufficiente per {operation}: disponibili {available}, richiesti {required} byte"
+            "insufficient free space for {operation}: available {available}, required {required} bytes"
         )));
     }
     Ok(())
@@ -4637,12 +4638,12 @@ fn prepare_encryption_marker(path: &Path, encryption: Option<&EncryptionConfig>)
                 .map_err(|error| AproError::Storage(error.to_string()))?;
             if contents != ENCRYPTION_MARKER {
                 return Err(AproError::IncompatibleFormat(
-                    "marker cifratura at-rest non riconosciuto".into(),
+                    "unrecognized at-rest encryption marker".into(),
                 ));
             }
             if encryption.is_none() {
                 return Err(AproError::IncompatibleFormat(
-                    "directory cifrata: fornire il keyring at-rest".into(),
+                    "encrypted directory: please provide the at-rest keyring".into(),
                 ));
             }
             Ok(())
@@ -4653,7 +4654,7 @@ fn prepare_encryption_marker(path: &Path, encryption: Option<&EncryptionConfig>)
             }
             if path.join("aprodb.wal").exists() || path.join("aprodb.snapshot").exists() {
                 return Err(AproError::IncompatibleFormat(
-                    "la cifratura non può essere abilitata automaticamente su dati 0.1".into(),
+                    "encryption cannot be enabled automatically on 0.1 data".into(),
                 ));
             }
             let backend_has_data = path
@@ -4663,8 +4664,7 @@ fn prepare_encryption_marker(path: &Path, encryption: Option<&EncryptionConfig>)
                 .unwrap_or(false);
             if path.join("APRODB_FORMAT").exists() || backend_has_data {
                 return Err(AproError::IncompatibleFormat(
-                    "directory 1.x non cifrata: usare rekey-to-copy, non un upgrade in-place"
-                        .into(),
+                    "unencrypted 1.x directory: use rekey-to-copy, not an in-place upgrade".into(),
                 ));
             }
             let temporary = path.join("APRODB_ENCRYPTION.tmp");
@@ -4688,12 +4688,12 @@ fn prepare_encryption_marker(path: &Path, encryption: Option<&EncryptionConfig>)
 fn validate_config(config: &EngineConfig) -> Result<()> {
     if config.max_data_bytes == Some(0) || config.max_compaction_temporary_bytes == 0 {
         return Err(AproError::InvalidInput(
-            "quote disco configurate a zero".into(),
+            "disk quotas configured to zero".into(),
         ));
     }
     if config.shards == 0 || !config.shards.is_power_of_two() {
         return Err(AproError::InvalidInput(
-            "il numero di shard deve essere una potenza di due".into(),
+            "the shard count must be a power of two".into(),
         ));
     }
     if config.limits.max_batch_operations == 0
@@ -4702,12 +4702,12 @@ fn validate_config(config: &EngineConfig) -> Result<()> {
         || config.limits.max_queue_depth == 0
     {
         return Err(AproError::InvalidInput(
-            "i limiti di batch, inflight e coda devono essere positivi".into(),
+            "batch, in-flight, and queue limits must be positive".into(),
         ));
     }
     if config.limits.max_queue_depth < config.limits.max_batch_operations {
         return Err(AproError::InvalidInput(
-            "la coda deve poter contenere almeno un AtomicBatch massimo".into(),
+            "queue must support at least one maximum AtomicBatch".into(),
         ));
     }
     let required_storage_operations = config
@@ -4715,50 +4715,50 @@ fn validate_config(config: &EngineConfig) -> Result<()> {
         .max_batch_operations
         .checked_mul(8)
         .and_then(|value| value.checked_add(4))
-        .ok_or_else(|| AproError::InvalidInput("limite batch eccessivo".into()))?;
+        .ok_or_else(|| AproError::InvalidInput("batch limit too large".into()))?;
     if config.storage.max_batch_operations < required_storage_operations {
         return Err(AproError::InvalidInput(format!(
-            "storage consente {} operazioni, ne servono almeno {required_storage_operations}",
+            "storage allows {} operations, but at least {required_storage_operations} are required",
             config.storage.max_batch_operations
         )));
     }
     if config.storage.max_batch_bytes < config.limits.max_batch_bytes {
         return Err(AproError::InvalidInput(
-            "il limite byte storage è inferiore al limite batch del motore".into(),
+            "the storage byte limit is lower than the engine batch limit".into(),
         ));
     }
     if !config.group_commit_window.is_zero() && config.group_commit_max_bytes == 0 {
         return Err(AproError::InvalidInput(
-            "group commit richiede un limite byte positivo".into(),
+            "group commit requires a positive byte limit".into(),
         ));
     }
     if config.group_commit_window > Duration::from_secs(60) {
         return Err(AproError::InvalidInput(
-            "finestra group commit oltre 60 secondi".into(),
+            "group commit window exceeds 60 seconds".into(),
         ));
     }
     if config.negative_cache_bytes > 0 && config.negative_cache_ttl.is_zero() {
         return Err(AproError::InvalidInput(
-            "negative cache abilitata con TTL zero".into(),
+            "negative cache enabled with zero TTL".into(),
         ));
     }
     if config.idempotency_retention.is_zero()
         || config.idempotency_retention > Duration::from_secs(365 * 24 * 60 * 60)
     {
         return Err(AproError::InvalidInput(
-            "retention idempotenza deve essere fra un millisecondo e 365 giorni".into(),
+            "idempotency retention must be between one millisecond and 365 days".into(),
         ));
     }
     if config.max_lease_duration.is_zero()
         || config.max_lease_duration > Duration::from_secs(24 * 60 * 60)
     {
         return Err(AproError::InvalidInput(
-            "durata lease massima deve essere fra un millisecondo e 24 ore".into(),
+            "maximum lease duration must be between one millisecond and 24 hours".into(),
         ));
     }
     if config.lease_recovery_safety_margin > config.max_lease_duration {
         return Err(AproError::InvalidInput(
-            "margine recovery lease maggiore della durata massima".into(),
+            "lease recovery margin greater than maximum duration".into(),
         ));
     }
     if config.max_claim_batch == 0
@@ -4766,7 +4766,7 @@ fn validate_config(config: &EngineConfig) -> Result<()> {
         || config.max_workflow_attempts == 0
     {
         return Err(AproError::InvalidInput(
-            "limiti claim/lease incoerenti con il limite batch".into(),
+            "claim/lease limits are inconsistent with the batch limit".into(),
         ));
     }
     if config.max_surface_records == 0
@@ -4777,9 +4777,7 @@ fn validate_config(config: &EngineConfig) -> Result<()> {
         || config.max_retained_surface_generations == 0
         || config.max_retained_surface_generations > 64
     {
-        return Err(AproError::InvalidInput(
-            "limiti delle superfici non validi".into(),
-        ));
+        return Err(AproError::InvalidInput("invalid surface limits".into()));
     }
     if config.compression_channels == 0
         || !config.compression_channels.is_power_of_two()
@@ -4792,7 +4790,7 @@ fn validate_config(config: &EngineConfig) -> Result<()> {
         || config.max_dictionary_training_bytes < config.max_dictionary_bytes
     {
         return Err(AproError::InvalidInput(
-            "limiti codec o dizionari non validi".into(),
+            "invalid codec or dictionary limits".into(),
         ));
     }
     config.compute.validate()?;
@@ -4800,7 +4798,7 @@ fn validate_config(config: &EngineConfig) -> Result<()> {
         || config.compute.max_batch_bytes > config.limits.max_inflight_bytes
     {
         return Err(AproError::InvalidInput(
-            "batch compute oltre il budget coda o inflight del motore".into(),
+            "compute batch exceeds engine's queue or inflight byte budget".into(),
         ));
     }
     let memtables = usize::try_from(config.storage.max_memtable_bytes)
@@ -4818,7 +4816,7 @@ fn validate_config(config: &EngineConfig) -> Result<()> {
         .saturating_add(config.negative_cache_bytes);
     if reserved > config.memory_budget_bytes {
         return Err(AproError::InvalidInput(format!(
-            "budget memoria {0} inferiore alla riserva configurata {reserved}",
+            "memory budget {0} less than configured reserved memory {reserved}",
             config.memory_budget_bytes
         )));
     }
@@ -4832,12 +4830,12 @@ const fn percent(value: usize, percentage: usize) -> usize {
 fn validate_radial_policy(policy: &RadialPolicy) -> Result<()> {
     if policy.freshness_half_life_ms == 0 {
         return Err(AproError::InvalidInput(
-            "emivita freshness deve essere positiva".into(),
+            "freshness half-life must be positive".into(),
         ));
     }
     if u32::from(policy.freshness_weight_millis) + u32::from(policy.urgency_weight_millis) != 1000 {
         return Err(AproError::InvalidInput(
-            "i pesi radiali devono sommare a 1000".into(),
+            "radial weights must sum to 1000".into(),
         ));
     }
     if policy.promotion_threshold_millis > 1000
@@ -4845,7 +4843,7 @@ fn validate_radial_policy(policy: &RadialPolicy) -> Result<()> {
         || policy.promotion_threshold_millis <= policy.demotion_threshold_millis
     {
         return Err(AproError::InvalidInput(
-            "soglie radiali non valide o senza isteresi".into(),
+            "radial thresholds invalid or lack hysteresis".into(),
         ));
     }
     Ok(())
@@ -4854,12 +4852,12 @@ fn validate_radial_policy(policy: &RadialPolicy) -> Result<()> {
 fn validate_storage_class(descriptor: &StorageClassDescriptor) -> Result<()> {
     if descriptor.name.is_empty() || descriptor.name.len() > 128 {
         return Err(AproError::InvalidInput(
-            "nome storage class deve contenere 1..128 byte".into(),
+            "storage class name must be 1..128 bytes".into(),
         ));
     }
     if descriptor.budget_bytes == 0 {
         return Err(AproError::InvalidInput(
-            "budget storage class deve essere positivo".into(),
+            "storage class budget must be positive".into(),
         ));
     }
     Ok(())
@@ -4868,7 +4866,7 @@ fn validate_storage_class(descriptor: &StorageClassDescriptor) -> Result<()> {
 fn validate_compression_policy(policy: &CompressionPolicy, config: &EngineConfig) -> Result<()> {
     if policy.surface.mode != CompressionMode::Raw || policy.surface.dictionary_id.is_some() {
         return Err(AproError::Unsupported(
-            "le superfici pre-serializzate usano Raw nella Milestone 5".into(),
+            "pre-serialized surfaces use Raw in Milestone 5".into(),
         ));
     }
     for tier in [&policy.hot, &policy.warm, &policy.cold, &policy.archive] {
@@ -4876,7 +4874,7 @@ fn validate_compression_policy(policy: &CompressionPolicy, config: &EngineConfig
             CompressionMode::Raw => {
                 if tier.dictionary_id.is_some() {
                     return Err(AproError::InvalidInput(
-                        "una policy Raw non può riferire un dizionario".into(),
+                        "a Raw policy cannot reference a dictionary".into(),
                     ));
                 }
             }
@@ -4886,7 +4884,7 @@ fn validate_compression_policy(policy: &CompressionPolicy, config: &EngineConfig
                     || tier.min_savings_bytes > config.limits.max_record_bytes
                 {
                     return Err(AproError::InvalidInput(
-                        "livello o soglie Zstandard fuori limite".into(),
+                        "Zstandard level or thresholds out of bounds".into(),
                     ));
                 }
             }
@@ -4899,7 +4897,7 @@ fn validate_compression_policy(policy: &CompressionPolicy, config: &EngineConfig
             .any(|prefix| prefix.is_empty() || prefix.len() > 255 || !prefix.is_ascii())
     {
         return Err(AproError::InvalidInput(
-            "lista content type non comprimibili non valida".into(),
+            "list of non-compressible content types invalid".into(),
         ));
     }
     Ok(())
@@ -4939,7 +4937,7 @@ fn encode_dictionary_samples(samples: &[Payload]) -> Result<Vec<Vec<u8>>> {
         .map(|payload| {
             payload.validate()?;
             bincode::serde::encode_to_vec(payload, bincode::config::standard())
-                .map_err(|error| AproError::InvalidInput(format!("codifica campione: {error}")))
+                .map_err(|error| AproError::InvalidInput(format!("sample encoding: {error}")))
         })
         .collect()
 }
@@ -4969,7 +4967,7 @@ fn validate_audit_event(event: &AuditEvent) -> Result<()> {
             .as_ref()
             .is_some_and(|value| value.is_empty() || value.len() > 128)
     {
-        return Err(AproError::Corrupt("evento audit non valido".into()));
+        return Err(AproError::Corrupt("invalid audit event".into()));
     }
     Ok(())
 }
@@ -4980,7 +4978,7 @@ fn validate_expected(expected: ExpectedVersion, current: Option<Version>) -> Res
         ExpectedVersion::Missing if current.is_none() => Ok(()),
         ExpectedVersion::Exact(version) if current == Some(version) => Ok(()),
         _ => Err(AproError::Conflict(format!(
-            "versione attesa {expected:?}, corrente {current:?}"
+            "expected version {expected:?}, current {current:?}"
         ))),
     }
 }
@@ -5031,7 +5029,7 @@ fn idempotency_context(mutations: &[AtomicMutation]) -> Result<Option<Idempotenc
             .any(|mutation| mutation.idempotency_key_hash().is_some())
         {
             return Err(AproError::InvalidInput(
-                "AtomicBatch idempotente richiede la stessa key su ogni mutazione".into(),
+                "idempotent AtomicBatch requires the same key on every mutation".into(),
             ));
         }
         return Ok(None);
@@ -5041,7 +5039,7 @@ fn idempotency_context(mutations: &[AtomicMutation]) -> Result<Option<Idempotenc
         .any(|mutation| mutation.idempotency_key_hash() != Some(first_hash))
     {
         return Err(AproError::InvalidInput(
-            "AtomicBatch idempotente richiede la stessa key su ogni mutazione".into(),
+            "idempotent AtomicBatch requires the same key on every mutation".into(),
         ));
     }
     let encoded = bincode::serde::encode_to_vec(mutations, bincode::config::standard())
@@ -5090,7 +5088,7 @@ fn idempotency_expiry_key(expires_at_unix_ms: u64, lookup_key: &[u8]) -> Vec<u8>
 
 fn duration_millis(duration: Duration) -> Result<u64> {
     u64::try_from(duration.as_millis())
-        .map_err(|_| AproError::ResourceLimit("durata oltre u64 millisecondi".into()))
+        .map_err(|_| AproError::ResourceLimit("duration exceeds u64 milliseconds".into()))
 }
 
 fn workflow_available_at(workflow: &WorkflowDescriptor) -> u64 {
@@ -5103,7 +5101,7 @@ fn workflow_available_at(workflow: &WorkflowDescriptor) -> u64 {
 
 fn workflow_prefix(scope: &[u8], state: &str) -> Result<Vec<u8>> {
     let state_len = u16::try_from(state.len())
-        .map_err(|_| AproError::InvalidInput("stato workflow troppo lungo".into()))?;
+        .map_err(|_| AproError::InvalidInput("workflow state too long".into()))?;
     let mut key = Vec::with_capacity(1 + scope.len() + 2 + state.len());
     key.push(b'w');
     key.extend_from_slice(scope);
@@ -5127,7 +5125,7 @@ fn workflow_put_request(
 ) -> Result<PutRequest> {
     let payload = record
         .payload
-        .ok_or_else(|| AproError::Conflict("workflow non applicabile a un tombstone".into()))?;
+        .ok_or_else(|| AproError::Conflict("workflow not applicable to a tombstone".into()))?;
     Ok(PutRequest {
         identity: record.identity,
         payload,
@@ -5164,7 +5162,7 @@ fn validate_surface_definition(
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
     {
         return Err(AproError::InvalidInput(
-            "projection id deve usare 1..128 caratteri ASCII sicuri".into(),
+            "projection id must use 1..128 safe ASCII characters".into(),
         ));
     }
     RecordIdentity {
@@ -5182,12 +5180,12 @@ fn validate_surface_definition(
             .any(|state| state.is_empty() || state.len() > 255)
     {
         return Err(AproError::InvalidInput(
-            "la superficie richiede almeno uno stato workflow valido".into(),
+            "surface requires at least one valid workflow state".into(),
         ));
     }
     if definition.max_records == 0 || definition.max_records > config.max_surface_records {
         return Err(AproError::ResourceLimit(format!(
-            "max_records superficie deve essere fra 1 e {}",
+            "surface max_records must be between 1 and {}",
             config.max_surface_records
         )));
     }
@@ -5195,7 +5193,7 @@ fn validate_surface_definition(
         || definition.max_bytes > config.max_surface_generation_bytes.saturating_sub(4096)
     {
         return Err(AproError::ResourceLimit(format!(
-            "max_bytes superficie deve essere fra 64 e {}",
+            "surface max_bytes must be between 64 and {}",
             config.max_surface_generation_bytes.saturating_sub(4096)
         )));
     }
@@ -5203,7 +5201,7 @@ fn validate_surface_definition(
         || definition.retained_generations > config.max_retained_surface_generations
     {
         return Err(AproError::ResourceLimit(format!(
-            "retention generazioni deve essere fra 1 e {}",
+            "generation retention must be between 1 and {}",
             config.max_retained_surface_generations
         )));
     }
@@ -5232,7 +5230,7 @@ fn surface_record_prefix(definition: &SurfaceDefinition) -> Result<Vec<u8>> {
         &definition.source_collection,
     ] {
         let len = u16::try_from(component.len())
-            .map_err(|_| AproError::ResourceLimit("componente superficie oltre u16".into()))?;
+            .map_err(|_| AproError::ResourceLimit("surface component exceeds u16".into()))?;
         output.extend_from_slice(&len.to_be_bytes());
         output.extend_from_slice(component);
     }
@@ -5294,7 +5292,7 @@ fn encode_surface_payload(format: SurfaceFormat, records: &[RecordEnvelope]) -> 
     match format {
         SurfaceFormat::AprodbRecords => encode_logical(LogicalFrameKind::SurfacePayload, &records),
         SurfaceFormat::Json => serde_json::to_vec(records)
-            .map_err(|error| AproError::InvalidInput(format!("serializzazione JSON: {error}"))),
+            .map_err(|error| AproError::InvalidInput(format!("JSON serialization: {error}"))),
     }
 }
 
@@ -5304,7 +5302,7 @@ fn decode_surface_payload(format: SurfaceFormat, serialized: &[u8]) -> Result<Ve
             decode_logical(LogicalFrameKind::SurfacePayload, serialized)
         }
         SurfaceFormat::Json => serde_json::from_slice(serialized)
-            .map_err(|error| AproError::Corrupt(format!("superficie JSON: {error}"))),
+            .map_err(|error| AproError::Corrupt(format!("JSON surface: {error}"))),
     }
 }
 
@@ -5322,7 +5320,7 @@ fn serialize_bounded_surface(
     let mut best = encode_surface_payload(definition.format, &[])?;
     if best.len() > definition.max_bytes {
         return Err(AproError::ResourceLimit(
-            "anche la superficie vuota supera max_bytes".into(),
+            "even the empty surface exceeds max_bytes".into(),
         ));
     }
     while low < high {
@@ -5356,7 +5354,7 @@ fn batch_id(epoch: u64, shard: u32, first_sequence: u64) -> [u8; 20] {
 
 fn consumer_watermark_key(collection_key: &[u8], shard: u32, consumer: &str) -> Result<Vec<u8>> {
     let consumer_len = u16::try_from(consumer.len())
-        .map_err(|_| AproError::InvalidInput("nome consumer troppo lungo".into()))?;
+        .map_err(|_| AproError::InvalidInput("consumer name too long".into()))?;
     let mut key = Vec::with_capacity(collection_key.len() + 6 + consumer.len());
     key.extend_from_slice(collection_key);
     key.extend_from_slice(&shard.to_be_bytes());
@@ -5478,9 +5476,9 @@ fn radial_score_millis(freshness: u16, urgency: u16, policy: &RadialPolicy) -> u
 fn now_unix_ms() -> Result<u64> {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|error| AproError::InvalidInput(format!("orologio prima di Unix epoch: {error}")))?
+        .map_err(|error| AproError::InvalidInput(format!("clock before Unix epoch: {error}")))?
         .as_millis();
-    u64::try_from(millis).map_err(|_| AproError::ResourceLimit("timestamp oltre u64".into()))
+    u64::try_from(millis).map_err(|_| AproError::ResourceLimit("timestamp exceeds u64".into()))
 }
 
 #[cfg(test)]
@@ -5662,13 +5660,13 @@ mod tests {
                         let Some(Payload::Bytes(payload)) =
                             engine.get_version(identity, *version).unwrap().payload
                         else {
-                            panic!("payload storico non binario");
+                            panic!("historical payload is not binary");
                         };
                         assert_eq!(&payload[..8], &expected.to_be_bytes());
                     }
                     ChangeBody::SelfContained { record } => {
                         let Some(Payload::Bytes(payload)) = &record.payload else {
-                            panic!("payload evento non binario");
+                            panic!("event payload is not binary");
                         };
                         assert_eq!(&payload[..8], &expected.to_be_bytes());
                     }
@@ -5692,7 +5690,7 @@ mod tests {
 
             let reopened = Engine::open(config).unwrap();
             let Some(Payload::Bytes(current)) = reopened.get(&id).unwrap().unwrap().payload else {
-                panic!("payload corrente non binario");
+                panic!("current payload is not binary");
             };
             assert_eq!(&current[..8], &299u64.to_be_bytes());
             assert!(reopened.get_version(&id, versions[0]).is_err());
@@ -5933,14 +5931,14 @@ mod tests {
         let engine = Engine::open(config.clone()).unwrap();
         let first = engine.put(request.clone()).unwrap();
         let replay = engine.put(request.clone()).unwrap();
-        assert_eq!(replay, first);
+        assert_eq!(replay, first); // Ensure idempotent replay returns the same result
         assert_eq!(engine.current_version(&id).unwrap(), Some(first.version));
         let mut conflicting = request.clone();
         conflicting.payload = Payload::Integer(8);
         assert!(matches!(
             engine.put(conflicting),
             Err(AproError::Conflict(_))
-        ));
+        )); // Confirm conflicting put requests result in a conflict error
         drop(engine);
 
         let reopened = Engine::open(config).unwrap();
@@ -5977,7 +5975,7 @@ mod tests {
         };
         let first = engine.claim(first_request.clone()).unwrap();
         let replay = engine.claim(first_request).unwrap();
-        assert_eq!(replay[0].record.version, first[0].record.version);
+        assert_eq!(replay[0].record.version, first[0].record.version); // Confirm repeated claim returns same record version
         assert_eq!(replay[0].lease, first[0].lease);
         assert!(first[0].record.version.sequence > append.version.sequence);
 
@@ -5999,7 +5997,7 @@ mod tests {
                 Durability::Durable,
             )
             .unwrap();
-        assert_eq!(heartbeat_replay.receipt, heartbeat.receipt);
+        assert_eq!(heartbeat_replay.receipt, heartbeat.receipt); // Verify heartbeat idempotency preserves receipt
 
         let failed = engine
             .fail(
@@ -6019,8 +6017,8 @@ mod tests {
                 Durability::Durable,
             )
             .unwrap();
-        assert_eq!(failed_replay.receipt, failed.receipt);
-        assert_eq!(failed.record.workflow.state, "pending");
+        assert_eq!(failed_replay.receipt, failed.receipt); // Confirm failure replay returns matching receipt
+        assert_eq!(failed.record.workflow.state, "pending"); // Workflow state remains 'pending' after failure
 
         let second = engine
             .claim(ClaimRequest {
@@ -6031,22 +6029,22 @@ mod tests {
                 durability: Durability::Durable,
             })
             .unwrap();
-        assert!(second[0].lease.fencing_token > first[0].lease.fencing_token);
+        assert!(second[0].lease.fencing_token > first[0].lease.fencing_token); // Ensure fencing token increments with subsequent claims
         drop(engine);
 
         let reopened = Engine::open(config).unwrap();
         assert!(matches!(
             reopened.complete(&id, first[0].lease, None, Durability::Durable),
             Err(AproError::Conflict(_))
-        ));
+        )); // Prevent completing a job with a stale lease after restart
         let completed = reopened
             .complete(&id, second[0].lease, Some([0x25; 32]), Durability::Durable)
             .unwrap();
         let completed_replay = reopened
             .complete(&id, second[0].lease, Some([0x25; 32]), Durability::Durable)
             .unwrap();
-        assert_eq!(completed_replay.receipt, completed.receipt);
-        assert_eq!(completed.record.workflow.state, "completed");
+        assert_eq!(completed_replay.receipt, completed.receipt); // Confirm idempotent replay of complete returns matching receipt
+        assert_eq!(completed.record.workflow.state, "completed"); // Workflow state updated to 'completed' after completing the job
 
         let published = reopened
             .publish(&id, Some([0x26; 32]), Durability::Durable)
@@ -6054,8 +6052,8 @@ mod tests {
         let published_replay = reopened
             .publish(&id, Some([0x26; 32]), Durability::Durable)
             .unwrap();
-        assert_eq!(published_replay.receipt, published.receipt);
-        assert_eq!(published.record.workflow.state, "published");
+        assert_eq!(published_replay.receipt, published.receipt); // Confirm idempotent replay of publish returns matching receipt
+        assert_eq!(published.record.workflow.state, "published"); // Workflow state updated to 'published' after publishing
         assert_eq!(
             reopened
                 .publish(&id, None, Durability::Durable)
@@ -6108,7 +6106,7 @@ mod tests {
             .into_iter()
             .map(|worker| worker.join().unwrap())
             .collect();
-        assert_eq!(claimed.len(), 2);
+        assert_eq!(claimed.len(), 2); // Ensure concurrent claims return distinct jobs without duplication
     }
 
     #[test]
@@ -6216,6 +6214,7 @@ mod tests {
 
     #[test]
     fn surface_gap_requires_explicit_rebuild() {
+        // Test that a surface gap requires an explicit rebuild to resolve it.
         let directory = tempdir().unwrap();
         let engine = Engine::open(EngineConfig::new(directory.path())).unwrap();
         let id = identity("surface-gap", "item");
@@ -6276,14 +6275,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "capacity gate: writes 129 MiB and is run explicitly for Milestone 3"]
+    #[ignore = "capacity gate test: writes 129 MiB and is executed explicitly for Milestone 3"]
     fn canonical_dataset_can_exceed_the_configured_memory_budget() {
+        // Test that dataset size can exceed configured memory budget without errors.
         const BUDGET_BYTES: usize = 128 * 1024 * 1024;
         const PAYLOAD_BYTES: usize = 128 * 1024;
         const RECORDS: usize = 1_032;
         const BATCH_RECORDS: usize = 48;
 
         fn payload(index: usize) -> Vec<u8> {
+            // Generate deterministic payload of specified size for given index.
             let mut state = (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
             (0..PAYLOAD_BYTES)
                 .map(|_| {
@@ -6330,6 +6331,7 @@ mod tests {
     }
 
     struct CountingBackend {
+        // Storage backend wrapper that counts commit and persist operations.
         inner: FjallBackend,
         buffered_commits: AtomicUsize,
         durable_commits: AtomicUsize,
@@ -6338,6 +6340,7 @@ mod tests {
 
     impl CountingBackend {
         fn new(path: &std::path::Path) -> Self {
+            // Initialize CountingBackend with inner FjallBackend at path.
             Self {
                 inner: FjallBackend::open(path, FjallOptions::default()).unwrap(),
                 buffered_commits: AtomicUsize::new(0),
@@ -6347,6 +6350,7 @@ mod tests {
         }
 
         fn reset(&self) {
+            // Reset counts of buffered commits, durable commits, and persists to zero.
             self.buffered_commits.store(0, Ordering::Release);
             self.durable_commits.store(0, Ordering::Release);
             self.persists.store(0, Ordering::Release);
@@ -6409,6 +6413,7 @@ mod tests {
 
     #[test]
     fn zero_window_syncs_each_request_and_nonzero_window_groups() {
+        // Verify zero commit window syncs each request individually, non-zero groups requests.
         let zero_directory = tempdir().unwrap();
         let zero_backend = Arc::new(CountingBackend::new(zero_directory.path()));
         let zero_engine = Engine::with_backend(
@@ -6470,6 +6475,7 @@ mod tests {
 
     #[test]
     fn logical_compression_is_adaptive_skippable_and_recoverable() {
+        // Test logical compression behavior: adaptive, skippable, and recoverable.
         let directory = tempdir().unwrap();
         let config = EngineConfig::new(directory.path());
         let compressed_id = identity("compression", "compressible");
@@ -6543,6 +6549,7 @@ mod tests {
 
     #[test]
     fn vector_exact_scans_a_bounded_collection_and_orders_ties() {
+        // The 'vector_exact' function scans a bounded collection and orders ties deterministically.
         let directory = tempdir().unwrap();
         let config = EngineConfig::new(directory.path());
         {
@@ -6628,6 +6635,7 @@ mod tests {
 
     #[test]
     fn compression_policy_and_cache_budgets_are_independent() {
+        // Verify that compression policies and cache budgets operate independently without interference.
         let directory = tempdir().unwrap();
         let engine = Engine::open(EngineConfig::new(directory.path())).unwrap();
         let id = identity("compression-policy", "key");
@@ -6670,6 +6678,7 @@ mod tests {
 
     #[test]
     fn dictionary_is_validated_persisted_and_required_for_exact_decode() {
+        // This test validates that dictionaries are validated, persisted correctly, and required for exact decoding.
         let directory = tempdir().unwrap();
         let config = EngineConfig::new(directory.path());
         let id = identity("dictionary", "key");
@@ -6787,6 +6796,7 @@ mod tests {
 
     #[test]
     fn compression_scratch_budget_applies_backpressure_without_publication() {
+        // Ensure that compression scratch space budget enforces backpressure correctly and prevents publication under budget constraints.
         let directory = tempdir().unwrap();
         let mut config = EngineConfig::new(directory.path());
         config.compression_scratch_bytes = 1024;

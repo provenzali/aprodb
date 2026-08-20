@@ -1,20 +1,20 @@
-# Benchmark comparativo AProDB
+# AProDB comparative benchmark
 
-Questo crate misura la stessa API key-value su AProDB, SQLite, PostgreSQL, MySQL e MariaDB. È separato dal crate principale per evitare che i driver SQL diventino dipendenze del motore.
+This crate evaluates the same key-value API across AProDB, SQLite, PostgreSQL, MySQL, and MariaDB. It is separated from the main crate to prevent SQL drivers from becoming dependencies of the engine.
 
-## Carico
+## Workload
 
-- 50.000 chiavi deterministiche e payload binari da 512 byte;
-- profilo `compressible`, simile a campi ripetitivi di log/documenti;
-- profilo `random`, pseudo-casuale deterministico ad alta entropia;
-- ingest in batch da 500 con un commit durevole per batch;
-- 50.000 lookup puntuali a dataset caldo;
-- 20 scansioni ordinate del gruppo `042`, fino a 1.000 righe;
-- tre ripetizioni; il confronto pubblicato usa la mediana.
+- 50,000 deterministic keys and a 512-byte binary payload;
+- `compressible` profile, similar to repetitive log/document fields;
+- `random` profile, pseudo-random deterministic high entropy;
+- ingestion in batches of 500, with a durable commit per batch;
+- 50,000 point lookups against the hot dataset;
+- 20 ordered scans of the `042` group, up to 1,000 rows;
+- three repetitions; the published comparison uses the median value.
 
-## Esecuzione
+## Execution
 
-Creare prima un database vuoto chiamato `aprodb_bench` sui server desiderati. Le porte predefinite del laboratorio sono PostgreSQL `55432`, MySQL `53306` e MariaDB `53307`.
+First, create an empty database called `aprodb_bench` on the desired servers. The default laboratory ports are PostgreSQL `55432`, MySQL `53306`, and MariaDB `53307`.
 
 ```powershell
 cargo run --release --manifest-path benchmarks/comparative/Cargo.toml -- `
@@ -25,19 +25,19 @@ cargo run --release --manifest-path benchmarks/comparative/Cargo.toml -- `
   --workdir target/bench-lab/results
 ```
 
-Il runner scrive `report.json` dopo ogni singola prova. Se un backend fallisce, conserva le prove già valide, registra l'errore e termina con codice diverso da zero.
+The runner writes `report.json` after each individual trial. If a backend fails, it retains the valid results already collected, records the error, and exits with a nonzero code.
 
-Per eseguire soltanto i backend embedded, che non richiedono server:
+To run only the embedded backends, which do not require servers:
 
 ```powershell
 cargo run --release --manifest-path benchmarks/comparative/Cargo.toml -- `
   --backends aprodb,sqlite --profiles compressible,random
 ```
 
-Gli URL dei server sono modificabili con `--postgres-url`, `--mysql-url` e `--mariadb-url`. Consultare `--help` per tutti i parametri.
+Server URLs can be modified with `--postgres-url`, `--mysql-url`, and `--mariadb-url`. See `--help` for all parameters.
 
-## Interpretazione corretta
+## Correct interpretation
 
-AProDB e SQLite sono nello stesso processo del runner. PostgreSQL, MySQL e MariaDB usano una singola connessione TCP su loopback. Il test misura quindi le API così come sono oggi, compresi protocollo e parsing SQL, e non pretende di isolare il solo indice interno.
+AProDB and SQLite run in the same runner process. PostgreSQL, MySQL, and MariaDB use a single TCP connection over loopback. The test therefore measures the APIs as they are today, including protocol and SQL parsing, and does not attempt to isolate only the internal index.
 
-Lo spazio riportato è la directory AProDB, il file SQLite dopo checkpoint, `pg_total_relation_size` o il tablespace InnoDB allocato. I file WAL/redo globali dei server SQL non sono inclusi. I risultati locali pubblicati sono in [RESULTS.md](RESULTS.md).
+The reported space is the AProDB directory, the SQLite file after checkpoint, `pg_total_relation_size`, or the allocated InnoDB tablespace. The global WAL/redo files of SQL servers are not included. The local results published are in [RESULTS.md](RESULTS.md).

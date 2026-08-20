@@ -155,7 +155,7 @@ fn run_variant(
     let recovery_ms = recovery_started.elapsed().as_millis();
     reopened
         .get(&identity(RECORDS - 1))?
-        .ok_or_else(|| std::io::Error::other("record assente dopo reopen"))?;
+        .ok_or_else(|| std::io::Error::other("record missing after reopen"))?;
     reopened.verify()?;
 
     latencies.sort_unstable();
@@ -210,7 +210,7 @@ fn process_sample(
     );
     let process = system
         .process(pid)
-        .ok_or_else(|| std::io::Error::other("contatori processo non disponibili"))?;
+        .ok_or_else(|| std::io::Error::other("process counters not available"))?;
     let disk = process.disk_usage();
     Ok(ProcessSample {
         cpu_ms: process.accumulated_cpu_time(),
@@ -228,7 +228,7 @@ fn identity(record: usize) -> RecordIdentity {
         "partition",
         format!("record-{record:08}"),
     )
-    .expect("identità benchmark costante")
+    .expect("constant benchmark identity")
 }
 
 fn payload(profile: Profile, record: usize) -> Vec<u8> {

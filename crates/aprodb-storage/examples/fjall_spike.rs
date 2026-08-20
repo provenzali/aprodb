@@ -189,19 +189,19 @@ fn run_variant(
     for record in (0..RECORDS).step_by((RECORDS / 16).max(1)) {
         let head = reopened
             .get(StorageSpace::Records, &head_key(record))?
-            .ok_or("head mancante")?;
+            .ok_or("missing head")?;
         if head != ((UPDATE_ROUNDS - 1) as u64).to_be_bytes() {
-            return Err("head con versione errata".into());
+            return Err("head with incorrect version".into());
         }
         let value = reopened
             .get(
                 StorageSpace::Versions,
                 &version_key(record, UPDATE_ROUNDS - 1),
             )?
-            .ok_or("versione mancante")?;
+            .ok_or("missing version")?;
         let decoded = decode_payload(&value)?;
         if decoded != payload(profile, record, UPDATE_ROUNDS - 1) {
-            return Err("payload recuperato diverso".into());
+            return Err("retrieved payload differs".into());
         }
     }
     let stats = reopened.stats()?;
@@ -256,7 +256,7 @@ fn process_total_written_bytes() -> Result<u64, Box<dyn std::error::Error>> {
     system
         .process(pid)
         .map(|process| process.disk_usage().total_written_bytes)
-        .ok_or_else(|| "contatori I/O del processo non disponibili".into())
+        .ok_or_else(|| "process I/O counters are unavailable".into())
 }
 
 fn payload(profile: Profile, record: usize, round: usize) -> Vec<u8> {
@@ -303,16 +303,16 @@ fn encode_payload(raw: &[u8], compress: bool) -> std::io::Result<Vec<u8>> {
 
 fn decode_payload(encoded: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     if encoded.len() < 5 {
-        return Err("payload spike incompleto".into());
+        return Err("incomplete spike payload".into());
     }
     let logical_len = u32::from_le_bytes(encoded[1..5].try_into()?) as usize;
     let bytes = match encoded[0] {
         0 => encoded[5..].to_vec(),
         1 => zstd::bulk::decompress(&encoded[5..], logical_len)?,
-        _ => return Err("codec spike sconosciuto".into()),
+        _ => return Err("unknown spike codec".into()),
     };
     if bytes.len() != logical_len {
-        return Err("lunghezza spike incoerente".into());
+        return Err("inconsistent spike length".into());
     }
     Ok(bytes)
 }

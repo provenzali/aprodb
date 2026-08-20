@@ -1,38 +1,23 @@
-# ADR-0005 — Licenze per componenti e attribuzione
+# ADR-0005 — Licensing for components and attribution
 
-## Stato
+## Status
 
-Accettata il 19 agosto 2026 da Andrea Provenzali.
+Accepted on 19 August 2026 by Andrea Provenzali.
 
-## Contesto
+## Background
 
-AProDB deve poter essere scaricato e usato da chiunque, anche commercialmente,
-senza consentire che le modifiche al database offerto come servizio diventino
-silenziosamente proprietarie. Allo stesso tempo, client e protocollo devono
-restare facilmente integrabili in applicazioni con licenze diverse. Il nome
-dell'autore originario deve viaggiare con le redistribuzioni senza pubblicare
-dati anagrafici non necessari.
+AProDB must be available for download and use by anyone, even for commercial purposes, without allowing modifications to the database offered as a service to become silently proprietary. At the same time, the client and protocol must remain easily integrable into applications with different licenses. The name of the original author must accompany redistributions without publishing unnecessary personal data.
 
-## Decisione
+## Decision
 
-- Core, server, storage, engine, compute, CLI e facade: `AGPL-3.0-only`.
-- Client Rust, protocollo e tipi pubblici condivisi: `Apache-2.0`.
-- I tipi compute usati dal client sono collocati in `aprodb-types`; il client
-  permissivo non dipende dall'implementazione compute AGPL.
-- Ogni sorgente contiene copyright e identificatore SPDX; i pacchetti includono
-  il testo della propria licenza.
-- `NOTICE`, `AUTHORS.md` e `CITATION.cff` identificano Andrea Provenzali come
-  creatore originario e autore della specifica, con ORCID
-  `0009-0009-9677-9840`.
-- Non vengono pubblicati codice fiscale, data di nascita, nazionalità o email
-  personali.
-- I contributi seguono DCO e la licenza del componente destinatario; non viene
-  introdotta una CLA in questa fase.
+- Core, server, storage, engine, compute, CLI, and facade: `AGPL-3.0-only`.
+- Rust client, protocol, and shared public types: `Apache-2.0`.
+- The compute types used by the client are located in `aprodb-types`; the permissive client does not depend on the AGPL compute implementation.
+- Each source file contains copyright and an SPDX identifier; packages include the full text of their license.
+- `NOTICE`, `AUTHORS.md`, and `CITATION.cff` identify Andrea Provenzali as the original creator and author of the specification, with ORCID `0009-0009-9677-9840`.
+- No tax codes, dates of birth, nationalities, or personal email addresses are published.
+- Contributions follow the DCO and the license of the recipient component; no CLA is introduced at this stage.
 
-## Conseguenze
+## Consequences
 
-Il database conserva copyleft anche per versioni modificate esposte via rete,
-mentre applicazioni esterne possono usare client e protocollo Apache. Non viene
-offerta una scelta “AGPL OR Apache” per il core. Una futura doppia licenza
-commerciale richiederebbe autorizzazioni compatibili da tutti i titolari delle
-parti coinvolte e una nuova ADR.
+The database also retains copyleft for modified versions exposed via the network, while external applications can use the Apache-licensed client and protocol. No “AGPL OR Apache” choice is offered for the core. A future dual commercial license would require compatible permissions from all copyright holders of the affected components and a new ADR.

@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Andrea Provenzali"]
 license = "AGPL-3.0-only"
 repository = "https://github.com/provenzali/aprodb"
-description = "Server centrale single-node di AProDB"
+description = "Central single-node server for AProDB"
 
 [features]
 default = ["gpu"]

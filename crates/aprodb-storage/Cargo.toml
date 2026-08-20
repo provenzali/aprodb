@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Andrea Provenzali"]
 license = "AGPL-3.0-only"
 repository = "https://github.com/provenzali/aprodb"
-description = "Contratto storage e adattatore Fjall di AProDB"
+description = "Storage contract and Fjall adapter for AProDB"
 
 [dependencies]
 aprodb-types = { path = "../aprodb-types", version = "0.1.0" }

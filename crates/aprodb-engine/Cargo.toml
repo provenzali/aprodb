@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Andrea Provenzali"]
 license = "AGPL-3.0-only"
 repository = "https://github.com/provenzali/aprodb"
-description = "Motore canonico single-node di AProDB"
+description = "Canonical single-node engine for AProDB"
 
 [features]
 default = []

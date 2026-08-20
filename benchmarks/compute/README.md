@@ -1,16 +1,11 @@
-# Benchmark compute Milestone 6
+# Milestone 6 compute benchmark
 
-Il laboratorio misura l'operatore vector exact/top-k CPU e wgpu sugli stessi
-batch colonnari e verifica il ranking entro tolleranza relativa `1e-4`.
+The lab measures the vector exact/top-k operator on both CPU and wgpu using the same columnar batches and verifies the ranking within a relative tolerance of `1e-4`.
 
 ```powershell
 cargo run --release -p aprodb-compute --features gpu --example compute_crossover
 ```
 
-Per ogni dimensione esegue nove campioni CPU, una richiesta GPU fredda e nove
-richieste con proiezione già in VRAM. La latenza GPU end-to-end include upload,
-dispatch, sincronizzazione, readback e top-k; i contatori separano inoltre
-tempo di trasferimento e kernel. I dati sono deterministici. I risultati locali
-non sono SLA e il crossover va ricalibrato sull'hardware di destinazione.
+For each dimension, it runs nine CPU samples, one cold GPU request, and nine requests with the projection already present in VRAM. GPU end-to-end latency includes upload, dispatch, synchronization, readback, and top-k; the counters also separate transfer time and kernel execution time. The data are deterministic. Local results do not constitute an SLA, and the crossover point must be recalibrated for the target hardware.
 
-I risultati verificati sono in [RESULTS.md](RESULTS.md).
+The verified results are in [RESULTS.md](RESULTS.md).

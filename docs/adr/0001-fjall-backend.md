@@ -1,86 +1,50 @@
-# ADR-0001 — Fjall come backend della verticale single-node
+# ADR-0001 — Fjall as the backend for the single-node vertical
 
-- Stato: accettato con vincoli sperimentali
-- Data: 19 agosto 2026
-- Ambito: Milestone 0.5 e 1; riesame obbligatorio prima della Milestone 7
+- State: accepted with experimental constraints
+- Date: August 19, 2026
+- Scope: Milestones 0.5 and 1; reviewed during Milestone 7
 
-## Contesto
+## Background
 
-AProDB richiede batch atomici fra record, versione immutabile, change event e
-catalogo; modalità Durable/Relaxed; scansioni ordinate; dataset maggiori della
-RAM; compressione per keyspace; recovery e compaction. Il change log AProDB non
-deve duplicare o interpretare WAL, manifest o segmenti fisici del backend.
+AProDB requires atomic batches across records, immutable versioning, change events, and catalog; Durable/Relaxed modes; ordered scans; datasets larger than RAM; keyspace-level compression; recovery and compaction. The AProDB change log must not duplicate or interpret the WAL, manifest, or physical segments of the backend.
 
-Fjall documenta database con più keyspace LSM, batch atomici, ordinamento
-lessicografico, persistenza configurabile e divieto di apertura multiprocesso
-della stessa directory. AProDB aggiunge comunque un lock esclusivo proprio,
-perché questa è un'invariante del server e non un dettaglio del backend:
+Fjall documents a database with multiple LSM keyspaces, atomic batches, lexicographic ordering, and configurable persistence, and prohibits multiple processes from opening the same directory. AProDB adds its own exclusive lock because this is a server invariant, not a backend detail:
 [README Fjall](https://github.com/fjall-rs/fjall/blob/main/README.md),
 [OwnedWriteBatch](https://docs.rs/fjall/3.1.8/fjall/struct.OwnedWriteBatch.html),
 [PersistMode](https://docs.rs/fjall/3.1.8/fjall/enum.PersistMode.html).
 
-## Decisione
+## Decision
 
-Si accetta Fjall 3.1.8, pin esatto, dietro `StorageBackend`. L'accettazione vale
-per il percorso sperimentale single-node e non equivale a idoneità production.
+Fjall 3.1.8, exact pin, is accepted behind `StorageBackend`. Acceptance is valid for the single-node experimental path and does not imply production suitability.
 
-- `OwnedWriteBatch` realizza l'atomicità cross-keyspace.
-- `SyncAll` implementa Durable; `Buffer` implementa Relaxed e la fase buffered
-  del group commit.
-- Records, Versions, Events, Catalog e Idempotency sono keyspace separati.
-- Da Milestone 5 il keyspace canonico usa payload logici Raw/Zstandard e non
-  applica LZ4 fisico per default; metadata, change log e superfici mantengono
-  LZ4. La decisione e la matrice a quattro modalità sono in
-  [ADR-0002](0002-logical-compression.md).
-- La compattazione esplicita usa soltanto API Fjall e attende flush osservabili
-  con timeout; AProDB non interpreta SST, journal o manifest.
-- Fjall non offre ancora un checkpoint nativo stabile. AProDB crea un checkpoint
-  logico in una nuova directory con watermark Durable e lo verifica in riapertura.
-- Snapshot MVCC longevi non sono usati per retention. Le versioni immutabili e i
-  watermark dei consumer sono dati applicativi AProDB.
-- Il formato 0.1 viene riconosciuto e rifiutato: nessuna apertura automatica come
-  formato 1.x.
+- `OwnedWriteBatch` provides atomicity across keyspaces.
+- `SyncAll` implements Durable; `Buffer` implements Relaxed and the buffered phase of the group commit.
+- Records, Versions, Events, Catalog, and Idempotency are separate keyspaces.
+- From Milestone 5, the canonical keyspace uses logical Raw/Zstandard payloads and does not apply LZ4 physical compression by default; metadata, change log, and surfaces retain LZ4. The decision and four-mode matrix are in [ADR-0002](0002-logical-compression.md).
+- Explicit compaction uses only Fjall APIs and waits for observable flushes with timeout; AProDB does not interpret SSTs, journals, or manifests.
+- Fjall does not yet offer a stable native checkpoint. AProDB creates a logical checkpoint in a new directory with Durable watermark and verifies it at reopen.
+- Long-lived MVCC snapshots are not used for retention. Immutable versions and consumer watermarks are AProDB application data.
+- The 0.1 format is recognized and rejected: no automatic opening as format 1.x.
 
-Redb e RocksDB restano fallback. Non vengono sottoposti a spike paralleli finché
-Fjall soddisfa i criteri o finché un rischio aperto non blocca una milestone.
+Redb and RocksDB remain as fallbacks. They are not subjected to parallel spikes as long as Fjall meets the criteria or until an open risk blocks a milestone.
 
-## Evidenze
+## Evidence
 
-La suite verifica lock in-process e cross-process, batch atomico dopo riapertura,
-scansioni limitate, flush/major compaction, recovery, checkpoint logico, limiti,
-fault injection e retention delle tre modalità. Lo spike quantitativo e i limiti
-della metrica I/O sono in
-[`benchmarks/storage-spike`](../../benchmarks/storage-spike/RESULTS.md).
+The suite verifies in-process and cross-process locks, atomic batch after reopening, limited scans, flush/major compaction, recovery, logical checkpoint, limits, fault injection, and retention for all three modes. The quantitative spike and the limits of the I/O metric are in [`benchmarks/storage-spike`](../../benchmarks/storage-spike/RESULTS.md).
 
-Il run locale ha misurato 4.096.000 byte di payload e 92.000 byte di evento
-VersionRef minimale. Con dati comprimibili, la codifica Zstandard adattiva ha
-prodotto 135.677 byte; con dati casuali ha conservato raw. Tutte le otto varianti
-hanno superato compaction, riapertura e verifica del payload.
+The local run measured 4,096,000 payload bytes and 92,000 bytes of minimal VersionRef event.
+With compressible data, the Zstandard adaptive code produced 135,677 bytes; with random data it
+retained raw.
+All eight variants passed compaction, reopen, and payload verification.
 
-## Rischi e mitigazioni
+## Risks and mitigations
 
-- Il problema upstream sui fallimenti durante la scrittura di un batch journal è
-  stato segnalato esplicitamente contro 3.1.8. Il backend AProDB entra quindi in
-  stato fail-closed dopo qualsiasi errore di commit o persist e richiede la
-  riapertura: [issue Fjall #308](https://github.com/fjall-rs/fjall/issues/308).
-- La modalità di recovery stretta, capace di distinguere corruzione interna da
-  tail troncata, è ancora una richiesta upstream. Prima della Milestone 7 servono
-  kill-test e corruzione su copie usa-e-getta:
-  [issue Fjall #311](https://github.com/fjall-rs/fjall/issues/311).
-- Esiste un bug segnalato sui journal sealed con keyspace inattivi. AProDB non usa
-  `clear`, mantiene limiti e metriche sul journal e forza manutenzione esplicita,
-  ma deve aggiungere un soak test:
-  [issue Fjall #288](https://github.com/fjall-rs/fjall/issues/288).
-- Il checkpoint nativo è ancora richiesto upstream; il checkpoint logico AProDB è
-  più costoso e non sostituisce ancora il backup operativo della Milestone 7:
-  [issue Fjall #52](https://github.com/fjall-rs/fjall/issues/52).
-- Le API Fjall usate per contatori e major compaction sono sperimentali. Il pin
-  esatto impedisce upgrade silenziosi; ogni cambio di versione richiede gate e
-  revisione di questa ADR.
+- The upstream issue with failures during batch journal writes was explicitly reported against 3.1.8. The AProDB backend therefore enters a fail-closed state after any commit or persist error and requires reopening: [issue Fjall #308](https://github.com/fjall-rs/fjall/issues/308).
+- At the time of the spike, strict recovery mode capable of distinguishing internal corruption from a truncated tail remained an upstream request. Milestone 7 therefore added kill tests and corruption tests on throwaway copies: [issue Fjall #311](https://github.com/fjall-rs/fjall/issues/311).
+- A bug has been reported regarding sealed journals with inactive keyspaces. AProDB does not use `clear`, maintains limits and metrics on the journal, and requires explicit maintenance, but must add a soak test: [issue Fjall #288](https://github.com/fjall-rs/fjall/issues/288).
+- At the time of the spike, a native checkpoint remained an upstream request. The AProDB logical checkpoint is more expensive and is distinct from the verified operational backup added in Milestone 7: [issue Fjall #52](https://github.com/fjall-rs/fjall/issues/52).
+- The Fjall APIs used for counters and major compaction are experimental. The exact pin prevents silent upgrades; each version change requires gating and a review of this ADR.
 
-## Criteri di riapertura della decisione
+## Criteria for reopening the decision
 
-La decisione va riesaminata se fallisce un kill-test Durable, la recovery accetta
-corruzione interna senza diagnostica, il journal supera il budget, le API di
-compaction scompaiono, il checkpoint logico non scala o una milestone richiede
-una capability non emulabile senza violare il confine del backend.
+The decision must be reconsidered if a Durable kill-test fails, recovery accepts internal corruption without diagnosis, the journal exceeds its budget, compaction APIs are removed, the logical checkpoint does not scale, or a milestone requires a capability that cannot be emulated without violating the backend boundary.

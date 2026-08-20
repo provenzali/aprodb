@@ -13,7 +13,7 @@ use aprodb_server::{Server, ServerConfig, TenantQuota, tls_server_config};
 use serde::Deserialize;
 use sysinfo::System;
 
-const USAGE: &str = "uso: aprodb-server --data-dir PATH [--data-listen ADDR] [--admin-listen ADDR] [--data-local NAME] [--admin-local NAME] [--backup-root PATH] [--max-data-bytes N] [--min-free-disk-bytes N] [--max-compaction-temporary-bytes N] [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--encryption-keyring JSON] [--tenant-quotas JSON] [--admin-principal ID] [--compute-cpu-threads N] [--compute-queue-depth N] [--compute-queue-bytes N] [--compute-max-batch-rows N] [--compute-max-batch-bytes N] [--compute-timeout-ms N] [--compute-micro-batch-ms N] [--gpu-vram-bytes N]\nrichiede APRODB_DATA_TOKEN e APRODB_ADMIN_TOKEN";
+const USAGE: &str = "usage: aprodb-server --data-dir PATH [--data-listen ADDR] [--admin-listen ADDR] [--data-local NAME] [--admin-local NAME] [--backup-root PATH] [--max-data-bytes N] [--min-free-disk-bytes N] [--max-compaction-temporary-bytes N] [--tls-cert PEM --tls-key PEM [--tls-client-ca PEM]] [--encryption-keyring JSON] [--tenant-quotas JSON] [--admin-principal ID] [--compute-cpu-threads N] [--compute-queue-depth N] [--compute-queue-bytes N] [--compute-max-batch-rows N] [--compute-max-batch-bytes N] [--compute-timeout-ms N] [--compute-micro-batch-ms N] [--gpu-vram-bytes N]\nrequires APRODB_DATA_TOKEN and APRODB_ADMIN_TOKEN";
 
 #[derive(Debug)]
 struct Options {
@@ -99,7 +99,7 @@ fn parse_options(arguments: impl IntoIterator<Item = String>) -> Result<Options,
         let value = |arguments: &mut dyn Iterator<Item = String>| {
             arguments
                 .next()
-                .ok_or_else(|| format!("valore assente per {argument}"))
+                .ok_or_else(|| format!("missing value for {argument}"))
         };
         match argument.as_str() {
             "--data-dir" => options.data_dir = PathBuf::from(value(&mut arguments)?),
@@ -107,14 +107,14 @@ fn parse_options(arguments: impl IntoIterator<Item = String>) -> Result<Options,
                 options.data_listen = Some(
                     value(&mut arguments)?
                         .parse()
-                        .map_err(|_| "--data-listen non valido".to_string())?,
+                        .map_err(|_| "invalid --data-listen argument".to_string())?,
                 );
             }
             "--admin-listen" => {
                 options.admin_listen = Some(
                     value(&mut arguments)?
                         .parse()
-                        .map_err(|_| "--admin-listen non valido".to_string())?,
+                        .map_err(|_| "invalid --admin-listen argument".to_string())?,
                 );
             }
             "--no-data-tcp" => options.data_listen = None,
@@ -209,27 +209,27 @@ fn parse_options(arguments: impl IntoIterator<Item = String>) -> Result<Options,
                     Some(parse_u64(&argument, value(&mut arguments)?)?);
             }
             "--help" | "-h" => return Err(USAGE.into()),
-            _ => return Err(format!("argomento sconosciuto: {argument}")),
+            _ => return Err(format!("unknown argument: {argument}")),
         }
     }
     if options.data_dir.as_os_str().is_empty() {
-        return Err("--data-dir è obbligatorio".into());
+        return Err("--data-dir is required".into());
     }
     if options.tls_certificate.is_some() != options.tls_private_key.is_some() {
-        return Err("--tls-cert e --tls-key devono essere forniti insieme".into());
+        return Err("--tls-cert and --tls-key must be provided together".into());
     }
     if options.tls_client_ca.is_some() && options.tls_certificate.is_none() {
-        return Err("--tls-client-ca richiede --tls-cert e --tls-key".into());
+        return Err("--tls-client-ca requires --tls-cert and --tls-key".into());
     }
     Ok(options)
 }
 
 fn parse_usize(name: &str, value: String) -> Result<usize, String> {
-    value.parse().map_err(|_| format!("{name} non valido"))
+    value.parse().map_err(|_| format!("{name} is invalid"))
 }
 
 fn parse_u64(name: &str, value: String) -> Result<u64, String> {
-    value.parse().map_err(|_| format!("{name} non valido"))
+    value.parse().map_err(|_| format!("{name} is invalid"))
 }
 
 #[tokio::main]
@@ -250,11 +250,11 @@ async fn run() -> Result<(), String> {
             env::var_os("APRODB_ENCRYPTION_KEYRING_FILE").map(PathBuf::from);
     }
     let data_token = env::var_os("APRODB_DATA_TOKEN")
-        .ok_or("APRODB_DATA_TOKEN assente")?
+        .ok_or("missing APRODB_DATA_TOKEN")?
         .to_string_lossy()
         .into_owned();
     let admin_token = env::var_os("APRODB_ADMIN_TOKEN")
-        .ok_or("APRODB_ADMIN_TOKEN assente")?
+        .ok_or("missing APRODB_ADMIN_TOKEN")?
         .to_string_lossy()
         .into_owned();
     let memory = detect_memory_limit(options.memory_budget_bytes)?;
@@ -340,7 +340,7 @@ async fn run() -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?;
     eprintln!(
-        "AProDB server avviato: data_tcp={:?}, admin_tcp={:?}, data_local={:?}, admin_local={:?}, tls={}, at_rest_encryption={}, memory_effective_bytes={}, memory_physical_bytes={}, memory_container_bytes={:?}, memory_configured_bytes={:?}",
+        "AProDB server started: data_tcp={:?}, admin_tcp={:?}, data_local={:?}, admin_local={:?}, tls_enabled={}, at_rest_encryption_enabled={}, memory_effective_bytes={}, memory_physical_bytes={}, memory_container_bytes={:?}, memory_configured_bytes={:?}",
         handle.data_tcp,
         handle.admin_tcp,
         handle.local_data,
@@ -374,18 +374,16 @@ struct TenantQuotasFile {
 
 fn load_encryption_keyring(path: &Path) -> Result<EncryptionConfig, String> {
     let bytes = read_bounded_file(path, 64 * 1024, true)?;
-    let file: EncryptionKeyringFile = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("keyring JSON non valido: {error}"))?;
+    let file: EncryptionKeyringFile =
+        serde_json::from_slice(&bytes).map_err(|error| format!("invalid keyring JSON: {error}"))?;
     let mut keys = BTreeMap::new();
     for (key_id, encoded) in file.keys {
         if encoded.len() != 64 {
-            return Err(format!(
-                "chiave {key_id} deve contenere esattamente 32 byte hex"
-            ));
+            return Err(format!("key {key_id} must contain exactly 32 hex bytes"));
         }
         let mut key = [0u8; 32];
         hex::decode_to_slice(encoded.as_bytes(), &mut key)
-            .map_err(|_| format!("chiave {key_id} non è hex valida"))?;
+            .map_err(|_| format!("key {key_id} is not valid hex"))?;
         keys.insert(key_id, key);
     }
     EncryptionConfig::new(file.active_key_id, keys).map_err(|error| error.to_string())
@@ -394,7 +392,7 @@ fn load_encryption_keyring(path: &Path) -> Result<EncryptionConfig, String> {
 fn load_tenant_quotas(path: &Path) -> Result<HashMap<Vec<u8>, TenantQuota>, String> {
     let bytes = read_bounded_file(path, 1024 * 1024, false)?;
     let file: TenantQuotasFile = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("quote tenant JSON non valide: {error}"))?;
+        .map_err(|error| format!("invalid tenant quotas JSON: {error}"))?;
     Ok(file
         .tenants
         .into_iter()
@@ -404,13 +402,13 @@ fn load_tenant_quotas(path: &Path) -> Result<HashMap<Vec<u8>, TenantQuota>, Stri
 
 fn read_bounded_file(path: &Path, maximum_bytes: u64, secret: bool) -> Result<Vec<u8>, String> {
     let metadata = std::fs::symlink_metadata(path)
-        .map_err(|error| format!("impossibile leggere metadati {}: {error}", path.display()))?;
+        .map_err(|error| format!("unable to read metadata for {}: {error}", path.display()))?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err(format!("{} deve essere un file regolare", path.display()));
+        return Err(format!("{} must be a regular file", path.display()));
     }
     if metadata.len() > maximum_bytes {
         return Err(format!(
-            "{} supera il limite di {} byte",
+            "{} exceeds the limit of {} bytes",
             path.display(),
             maximum_bytes
         ));
@@ -420,7 +418,7 @@ fn read_bounded_file(path: &Path, maximum_bytes: u64, secret: bool) -> Result<Ve
         use std::os::unix::fs::PermissionsExt;
         if metadata.permissions().mode() & 0o077 != 0 {
             return Err(format!(
-                "{} deve essere leggibile/scrivibile solo dal proprietario",
+                "{} must be readable/writable only by owner",
                 path.display()
             ));
         }
@@ -428,10 +426,10 @@ fn read_bounded_file(path: &Path, maximum_bytes: u64, secret: bool) -> Result<Ve
     #[cfg(not(unix))]
     let _ = secret;
     let bytes = std::fs::read(path)
-        .map_err(|error| format!("impossibile leggere {}: {error}", path.display()))?;
+        .map_err(|error| format!("unable to read {}: {error}", path.display()))?;
     if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > maximum_bytes {
         return Err(format!(
-            "{} è cresciuto oltre il limite durante la lettura",
+            "{} grew beyond limit during reading",
             path.display()
         ));
     }
@@ -472,7 +470,7 @@ fn choose_memory_limit(
     let ceiling = detected_ceiling
         .map(|bytes| usize::try_from(bytes).unwrap_or(usize::MAX))
         .or(configured_bytes)
-        .ok_or("limite memoria non rilevabile: specificare --memory-budget-bytes")?;
+        .ok_or("memory limit not detectable: specify --memory-budget-bytes")?;
     let requested = configured_bytes.unwrap_or(ceiling / 2);
     let effective_bytes = requested.min(ceiling);
     Ok(MemoryLimit {

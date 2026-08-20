@@ -38,7 +38,7 @@ impl CodecChannel {
     fn new() -> Result<Self> {
         Ok(Self {
             compressor: zstd::bulk::Compressor::new(1).map_err(|error| {
-                AproError::Storage(format!("inizializzazione Zstandard: {error}"))
+                AproError::Storage(format!("Zstandard initialization error: {error}"))
             })?,
             decompressor: zstd::bulk::Decompressor::new().map_err(|error| {
                 AproError::Storage(format!("inizializzazione Zstandard: {error}"))
@@ -67,12 +67,12 @@ impl CompressionManager {
     pub(crate) fn new(channels: usize, scratch_budget_bytes: usize) -> Result<Self> {
         if channels == 0 || !channels.is_power_of_two() || channels > 64 {
             return Err(AproError::InvalidInput(
-                "i canali codec devono essere una potenza di due fra 1 e 64".into(),
+                "codec channels must be a power of two between 1 and 64".into(),
             ));
         }
         if scratch_budget_bytes == 0 {
             return Err(AproError::InvalidInput(
-                "il budget scratch codec deve essere positivo".into(),
+                "codec scratch budget must be positive".into(),
             ));
         }
         Ok(Self {
@@ -141,7 +141,7 @@ impl CompressionManager {
         let stored: StoredRecordEnvelope = decode_logical(LogicalFrameKind::StoredRecord, bytes)?;
         if stored.tombstone != stored.payload.is_none() {
             return Err(AproError::Corrupt(
-                "stored record con tombstone/payload incoerenti".into(),
+                "stored record with inconsistent tombstone/payload".into(),
             ));
         }
         let dictionary_id = stored
@@ -194,7 +194,7 @@ impl CompressionManager {
         channel
             .compressor
             .set_dictionary(level, dictionary.unwrap_or_default())
-            .map_err(|error| AproError::InvalidInput(format!("dizionario Zstandard: {error}")))?;
+            .map_err(|error| AproError::InvalidInput(format!("Zstandard dictionary: {error}")))?;
         channel
             .compressor
             .compress(bytes)
@@ -231,9 +231,9 @@ impl CompressionManager {
     ) -> Result<StoredPayload> {
         let started = Instant::now();
         let raw = bincode::serde::encode_to_vec(payload, bincode::config::standard())
-            .map_err(|error| AproError::InvalidInput(format!("codifica payload: {error}")))?;
+            .map_err(|error| AproError::InvalidInput(format!("payload encoding: {error}")))?;
         let logical_bytes = u64::try_from(raw.len())
-            .map_err(|_| AproError::ResourceLimit("payload logico oltre u64".into()))?;
+            .map_err(|_| AproError::ResourceLimit("logical payload size exceeds u64".into()))?;
         let _scratch = self.acquire_scratch(scratch_requirement(raw.len()))?;
         let mut selected_dictionary_id = None;
         let mut codec = CompressionCodec::Raw;
@@ -250,12 +250,11 @@ impl CompressionManager {
                     .compressor
                     .set_dictionary(policy.zstd_level, dictionary_bytes.unwrap_or_default())
                     .map_err(|error| {
-                        AproError::InvalidInput(format!("dizionario Zstandard: {error}"))
+                        AproError::InvalidInput(format!("Zstandard dictionary error: {error}"))
                     })?;
-                channel
-                    .compressor
-                    .compress(&raw)
-                    .map_err(|error| AproError::Storage(format!("compressione Zstandard: {error}")))
+                channel.compressor.compress(&raw).map_err(|error| {
+                    AproError::Storage(format!("Zstandard compression error: {error}"))
+                })
             })();
             let candidate = candidate.inspect_err(|_| {
                 self.failures.fetch_add(1, Ordering::Relaxed);
@@ -304,18 +303,18 @@ impl CompressionManager {
         let started = Instant::now();
         if stored.codec_version != CODEC_VERSION {
             return Err(AproError::IncompatibleFormat(format!(
-                "versione codec payload {} non supportata",
+                "payload codec version {} not supported",
                 stored.codec_version
             )));
         }
         let logical_bytes = usize::try_from(stored.logical_bytes)
-            .map_err(|_| AproError::Corrupt("lunghezza payload oltre usize".into()))?;
+            .map_err(|_| AproError::Corrupt("payload length exceeds usize".into()))?;
         let _scratch = self.acquire_scratch(scratch_requirement(logical_bytes))?;
         let raw = match stored.codec {
             CompressionCodec::Raw => {
                 if stored.dictionary_id.is_some() || stored.bytes.len() != logical_bytes {
                     return Err(AproError::Corrupt(
-                        "payload Raw con dizionario o lunghezza incoerente".into(),
+                        "Raw payload with dictionary or inconsistent length".into(),
                     ));
                 }
                 stored.bytes.clone()
@@ -327,7 +326,7 @@ impl CompressionManager {
                     }
                     (Some(expected), _) => {
                         return Err(AproError::Corrupt(format!(
-                            "dizionario {expected} richiesto dal payload non disponibile"
+                            "dictionary {expected} requested by payload not available"
                         )));
                     }
                     (None, _) => None,
@@ -338,12 +337,12 @@ impl CompressionManager {
                         .decompressor
                         .set_dictionary(dictionary_bytes.unwrap_or_default())
                         .map_err(|error| {
-                            AproError::Corrupt(format!("dizionario Zstandard: {error}"))
+                            AproError::Corrupt(format!("Zstandard dictionary: {error}"))
                         })?;
                     channel
                         .decompressor
                         .decompress(&stored.bytes, logical_bytes)
-                        .map_err(|error| AproError::Corrupt(format!("payload Zstandard: {error}")))
+                        .map_err(|error| AproError::Corrupt(format!("Zstandard payload: {error}")))
                 })();
                 result.inspect_err(|_| {
                     self.failures.fetch_add(1, Ordering::Relaxed);
@@ -352,15 +351,15 @@ impl CompressionManager {
         };
         if raw.len() != logical_bytes || crc32fast::hash(&raw) != stored.logical_checksum {
             return Err(AproError::Corrupt(
-                "lunghezza o checksum del payload decompresso non valido".into(),
+                "invalid length or checksum of decompressed payload".into(),
             ));
         }
         let (payload, consumed): (Payload, usize) =
             bincode::serde::decode_from_slice(&raw, bincode::config::standard())
-                .map_err(|error| AproError::Corrupt(format!("decodifica payload: {error}")))?;
+                .map_err(|error| AproError::Corrupt(format!("payload decoding: {error}")))?;
         if consumed != raw.len() {
             return Err(AproError::Corrupt(
-                "byte residui dopo il payload decompresso".into(),
+                "residual bytes after decompressed payload".into(),
             ));
         }
         self.decompression_micros.fetch_add(
@@ -377,12 +376,12 @@ impl CompressionManager {
     fn acquire_scratch(&self, bytes: usize) -> Result<ScratchGuard<'_>> {
         let mut current = self.scratch_inflight_bytes.load(Ordering::Acquire);
         loop {
-            let next = current.checked_add(bytes).ok_or_else(|| {
-                AproError::ResourceLimit("contatore scratch codec esaurito".into())
-            })?;
+            let next = current
+                .checked_add(bytes)
+                .ok_or_else(|| AproError::ResourceLimit("codec scratch counter exceeded".into()))?;
             if next > self.scratch_budget_bytes {
                 return Err(AproError::Backpressure(format!(
-                    "scratch codec {next} oltre budget {}",
+                    "codec scratch {next} over budget {}",
                     self.scratch_budget_bytes
                 )));
             }

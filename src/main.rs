@@ -8,7 +8,7 @@ use serde::Serialize;
 #[command(
     name = "aprodb",
     version,
-    about = "Database parallelo key-value e vettoriale"
+    about = "Parallel key-value and vector database"
 )]
 struct Cli {
     #[arg(long, global = true, default_value = ".aprodb")]
@@ -17,7 +17,7 @@ struct Cli {
     #[arg(
         long,
         global = true,
-        help = "Riduce la durabilità per aumentare il throughput"
+        help = "Reduces durability to increase throughput"
     )]
     relaxed: bool,
 
@@ -46,7 +46,7 @@ enum Command {
         limit: usize,
     },
     VectorSearch {
-        #[arg(help = "Componenti separate da virgola, es. 0.2,0.5,0.1")]
+        #[arg(help = "Comma-separated components, e.g. 0.2,0.5,0.1")]
         query: String,
         #[arg(long, default_value_t = 10)]
         limit: usize,
@@ -180,7 +180,7 @@ fn parse_value(kind: ValueKind, input: &str) -> Result<Value, Box<dyn std::error
 
 fn parse_vector(input: &str) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     if input.trim().is_empty() {
-        return Err("il vettore non può essere vuoto".into());
+        return Err("Vector cannot be empty".into());
     }
     input
         .split(',')
@@ -191,7 +191,7 @@ fn parse_vector(input: &str) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
 fn parse_hex(input: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let bytes = input.as_bytes();
     if !bytes.len().is_multiple_of(2) {
-        return Err("una stringa esadecimale deve avere lunghezza pari".into());
+        return Err("Hex string must have an even length".into());
     }
     bytes
         .chunks_exact(2)
@@ -209,7 +209,7 @@ fn run_demo(
     backend: ComputeBackend,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if items == 0 || dimension == 0 {
-        return Err("items e dimension devono essere maggiori di zero".into());
+        return Err("Items and dimension must be greater than zero".into());
     }
     let batch: Vec<_> = (0..items)
         .map(|row| {

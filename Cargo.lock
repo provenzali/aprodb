@@ -113,9 +113,11 @@ dependencies = [
  "aprodb-client",
  "aprodb-engine",
  "aprodb-types",
+ "blake3",
  "hex",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

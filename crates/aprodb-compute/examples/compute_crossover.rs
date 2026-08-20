@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         let cold_us = micros(cold_started.elapsed());
         if !scores_equivalent(&cpu_reference, &cold, 1e-4) {
-            return Err("ranking GPU freddo non equivalente alla CPU".into());
+            return Err("cold GPU ranking is not equivalent to the CPU".into());
         }
         let (warm_reference, mut warm_samples) = measure(SAMPLES, || {
             let scores =
@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok::<_, aprodb_types::AproError>(top_k(scores, TOP_K))
         })?;
         if !scores_equivalent(&cpu_reference, &warm_reference, 1e-4) {
-            return Err("ranking GPU caldo non equivalente alla CPU".into());
+            return Err("warm GPU ranking is not equivalent to the CPU".into());
         }
         let after = gpu.stats();
         cpu_samples.sort_unstable();

@@ -54,25 +54,25 @@ pub fn import_0_1(mut options: LegacyImportOptions) -> aprodb_engine::Result<Leg
         || options.batch_operations > options.destination.limits.max_batch_operations
     {
         return Err(EngineError::InvalidInput(
-            "limiti import 0.1 non validi".into(),
+            "invalid import 0.1 parameters or limits".into(),
         ));
     }
     let source = fs::canonicalize(&options.source).map_err(storage_error)?;
     if !source.is_dir() {
         return Err(EngineError::InvalidInput(
-            "sorgente 0.1 non è una directory".into(),
+            "0.1 source path is not a directory".into(),
         ));
     }
     let preserved_copy = resolve_new_path(&options.source_copy)?;
     let destination = resolve_new_path(&options.destination.path)?;
     if preserved_copy.starts_with(&source) || destination.starts_with(&source) {
         return Err(EngineError::InvalidInput(
-            "copia e destinazione import devono essere esterne alla sorgente 0.1".into(),
+            "import copy and destination must be located outside the 0.1 source directory".into(),
         ));
     }
     if preserved_copy == destination {
         return Err(EngineError::InvalidInput(
-            "copia preservata e destinazione import devono essere distinte".into(),
+            "preserved copy and import destination must not be the same path".into(),
         ));
     }
     fs::create_dir(&preserved_copy).map_err(storage_error)?;
@@ -89,12 +89,12 @@ pub fn import_0_1(mut options: LegacyImportOptions) -> aprodb_engine::Result<Leg
             continue;
         }
         let file = copy_live_source(&source_file, &raw.join(name), options.max_source_bytes)?;
-        total_source_bytes = total_source_bytes
-            .checked_add(file.bytes)
-            .ok_or_else(|| EngineError::ResourceLimit("sorgente 0.1 oltre u64".into()))?;
+        total_source_bytes = total_source_bytes.checked_add(file.bytes).ok_or_else(|| {
+            EngineError::ResourceLimit("0.1 source size exceeds u64 maximum limit".into())
+        })?;
         if total_source_bytes > options.max_source_bytes {
             return Err(EngineError::ResourceLimit(format!(
-                "sorgente 0.1 oltre {} byte",
+                "0.1 source size exceeds the limit of {} bytes",
                 options.max_source_bytes
             )));
         }
@@ -103,7 +103,7 @@ pub fn import_0_1(mut options: LegacyImportOptions) -> aprodb_engine::Result<Leg
     }
     if source_files.is_empty() {
         return Err(EngineError::IncompatibleFormat(
-            "nessun file aprodb.snapshot/aprodb.wal 0.1 trovato".into(),
+            "no aprodb.snapshot or aprodb.wal files found in 0.1 source".into(),
         ));
     }
     write_legacy_manifest(&preserved_copy, &source_files)?;
@@ -117,14 +117,16 @@ pub fn import_0_1(mut options: LegacyImportOptions) -> aprodb_engine::Result<Leg
     let destination_name = destination
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| EngineError::InvalidInput("nome destinazione import non UTF-8".into()))?;
+        .ok_or_else(|| {
+            EngineError::InvalidInput("import destination directory name is not valid UTF-8".into())
+        })?;
     let work = destination
         .parent()
-        .expect("percorso risolto con parent")
+        .expect("path resolved with parent")
         .join(format!(".{destination_name}.aprodb-importing"));
     if work.exists() {
         return Err(EngineError::InvalidInput(format!(
-            "directory di lavoro import già esistente: {}",
+            "import working directory already exists at path: {}",
             work.display()
         )));
     }
@@ -178,13 +180,13 @@ fn legacy_payload(value: Value) -> (Payload, &'static str) {
 fn resolve_new_path(path: &Path) -> aprodb_engine::Result<PathBuf> {
     if path.exists() {
         return Err(EngineError::InvalidInput(format!(
-            "destinazione già esistente: {}",
+            "destination path already exists: {}",
             path.display()
         )));
     }
-    let name = path
-        .file_name()
-        .ok_or_else(|| EngineError::InvalidInput("destinazione senza nome".into()))?;
+    let name = path.file_name().ok_or_else(|| {
+        EngineError::InvalidInput("destination path does not contain a valid name".into())
+    })?;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let parent = fs::canonicalize(parent).map_err(storage_error)?;
     Ok(parent.join(name))
@@ -198,27 +200,29 @@ fn copy_live_source(
     let metadata = fs::symlink_metadata(source).map_err(storage_error)?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err(EngineError::InvalidInput(format!(
-            "file sorgente 0.1 non regolare: {}",
+            "0.1 source file is not a regular file at path: {}",
             source.display()
         )));
     }
     if metadata.len() > maximum_bytes {
         return Err(EngineError::ResourceLimit(format!(
-            "file sorgente 0.1 oltre {maximum_bytes} byte"
+            "0.1 source file size exceeds limit of {maximum_bytes} bytes"
         )));
     }
     let (bytes, hash) = stream_copy(source, destination, maximum_bytes)?;
     let (observed_bytes, observed_hash) = hash_file(source, maximum_bytes)?;
     if bytes != observed_bytes || hash != observed_hash || bytes != metadata.len() {
         return Err(EngineError::Conflict(
-            "sorgente 0.1 cambiata durante la copia; arrestare ogni writer e riprovare".into(),
+            "0.1 source changed during copy; please stop all writers and retry".into(),
         ));
     }
     Ok(LegacySourceFile {
         name: source
             .file_name()
             .and_then(|name| name.to_str())
-            .ok_or_else(|| EngineError::InvalidInput("nome file 0.1 non UTF-8".into()))?
+            .ok_or_else(|| {
+                EngineError::InvalidInput("0.1 source filename is not valid UTF-8".into())
+            })?
             .into(),
         bytes,
         blake3: hash,
@@ -233,7 +237,7 @@ fn copy_known_file(
     let (bytes, hash) = stream_copy(source, destination, expected.bytes)?;
     if bytes != expected.bytes || hash != expected.blake3 {
         return Err(EngineError::Corrupt(
-            "copia di lettura 0.1 divergente dalla copia preservata".into(),
+            "0.1 reader copy does not match preserved copy; data integrity failure".into(),
         ));
     }
     Ok(())
@@ -260,10 +264,10 @@ fn stream_copy(
         }
         bytes = bytes
             .checked_add(read as u64)
-            .ok_or_else(|| EngineError::ResourceLimit("file 0.1 oltre u64".into()))?;
+            .ok_or_else(|| EngineError::ResourceLimit("0.1 file exceeds u64".into()))?;
         if bytes > maximum_bytes {
             return Err(EngineError::ResourceLimit(format!(
-                "file 0.1 oltre {maximum_bytes} byte"
+                "0.1 file exceeds {maximum_bytes} bytes"
             )));
         }
         output.write_all(&buffer[..read]).map_err(storage_error)?;
@@ -285,10 +289,10 @@ fn hash_file(path: &Path, maximum_bytes: u64) -> aprodb_engine::Result<(u64, Str
         }
         bytes = bytes
             .checked_add(read as u64)
-            .ok_or_else(|| EngineError::ResourceLimit("file 0.1 oltre u64".into()))?;
+            .ok_or_else(|| EngineError::ResourceLimit("0.1 file exceeds u64".into()))?;
         if bytes > maximum_bytes {
             return Err(EngineError::ResourceLimit(format!(
-                "file 0.1 oltre {maximum_bytes} byte"
+                "0.1 file exceeds {maximum_bytes} bytes"
             )));
         }
         hasher.update(&buffer[..read]);
@@ -298,7 +302,7 @@ fn hash_file(path: &Path, maximum_bytes: u64) -> aprodb_engine::Result<(u64, Str
 
 fn write_legacy_manifest(root: &Path, files: &[LegacySourceFile]) -> aprodb_engine::Result<()> {
     let bytes = serde_json::to_vec_pretty(files)
-        .map_err(|error| EngineError::Storage(format!("manifest copia 0.1: {error}")))?;
+        .map_err(|error| EngineError::Storage(format!("0.1 copy manifest write error: {error}")))?;
     let mut manifest = OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -309,7 +313,7 @@ fn write_legacy_manifest(root: &Path, files: &[LegacySourceFile]) -> aprodb_engi
 }
 
 fn legacy_error(error: crate::AproError) -> EngineError {
-    EngineError::IncompatibleFormat(format!("lettura AProDB 0.1: {error}"))
+    EngineError::IncompatibleFormat(format!("AProDB 0.1 read error encountered: {error}"))
 }
 
 fn storage_error(error: std::io::Error) -> EngineError {
