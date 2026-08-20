@@ -704,7 +704,6 @@ impl BenchBackend for PostgresBackend {
 struct MysqlBackend {
     connection: Conn,
     version: String,
-    is_mariadb: bool,
 }
 
 impl MysqlBackend {
@@ -714,11 +713,9 @@ impl MysqlBackend {
         let version = connection
             .query_first::<String, _>("SELECT VERSION()")?
             .unwrap_or_else(|| "unknown".into());
-        let is_mariadb = version.to_ascii_lowercase().contains("mariadb");
         Ok(Self {
             connection,
             version,
-            is_mariadb,
         })
     }
 
@@ -785,15 +782,13 @@ impl BenchBackend for MysqlBackend {
     }
 
     fn physical_data_bytes(&mut self) -> BenchResult<u64> {
-        let query = if self.is_mariadb {
-            "SELECT FILE_SIZE FROM information_schema.INNODB_SYS_TABLESPACES
-             WHERE NAME=CONCAT(DATABASE(), '/bench_kv')"
-        } else {
-            "SELECT FILE_SIZE FROM information_schema.INNODB_TABLESPACES
-             WHERE NAME=CONCAT(DATABASE(), '/bench_kv')"
-        };
-        let bytes = self.connection.query_first::<u64, _>(query)?;
-        Ok(bytes.unwrap_or(0))
+        // TABLES metrics are available to ordinary benchmark users; querying
+        // InnoDB tablespace metadata would require the PROCESS privilege.
+        let bytes = self.connection.query_first::<(Option<u64>, Option<u64>), _>(
+            "SELECT DATA_LENGTH, INDEX_LENGTH FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='bench_kv'",
+        )?;
+        Ok(bytes.map(|(data, index)| data.unwrap_or(0) + index.unwrap_or(0)).unwrap_or(0))
     }
 }
 
