@@ -55,6 +55,9 @@ struct Args {
     #[arg(long, default_value_t = 50_000)]
     reads: usize,
 
+    #[arg(long, default_value_t = 0)]
+    updates: usize,
+
     #[arg(long, default_value_t = 500)]
     payload_bytes: usize,
 
@@ -112,6 +115,7 @@ struct ReportConfig {
     profiles: Vec<PayloadProfile>,
     records: usize,
     reads: usize,
+    updates: usize,
     payload_bytes: usize,
     batch_size: usize,
     repetitions: usize,
@@ -137,6 +141,8 @@ struct RunMetrics {
     ingest_ops_per_second: f64,
     read_ops_per_second: f64,
     read_latency_us: Latencies,
+    update_seconds: f64,
+    update_ops_per_second: f64,
     scan_ops_per_second: f64,
     scan_latency_us: Latencies,
     physical_data_bytes: u64,
@@ -173,6 +179,9 @@ trait BenchBackend {
     fn version(&self) -> &str;
     fn reset(&mut self) -> BenchResult<()>;
     fn ingest(&mut self, records: &[Record], batch_size: usize) -> BenchResult<()>;
+    fn update(&mut self, records: &[Record], batch_size: usize) -> BenchResult<()> {
+        self.ingest(records, batch_size)
+    }
     fn get_len(&mut self, key: &str) -> BenchResult<Option<usize>>;
     fn scan(&mut self, lower: &str, upper: &str, limit: usize) -> BenchResult<(usize, usize)>;
     fn physical_data_bytes(&mut self) -> BenchResult<u64>;
@@ -196,6 +205,7 @@ fn main() -> BenchResult<()> {
             profiles: args.profiles.clone(),
             records: args.records,
             reads: args.reads,
+            updates: args.updates,
             payload_bytes: args.payload_bytes,
             batch_size: args.batch_size,
             repetitions: args.runs,
@@ -215,6 +225,7 @@ fn main() -> BenchResult<()> {
             "Redis/Valkey uses one loopback TCP connection and a sorted-set range index in addition to the string payloads.".into(),
             "Physical bytes are the AProDB data directory, SQLite database file after checkpoint, SQL table plus indexes, or Redis/Valkey used_memory_dataset; server redo/WAL/AOF files are excluded.".into(),
             "The compressible profile models repetitive document/log fields; random is deterministic high-entropy binary data.".into(),
+            "When updates is nonzero, the update phase performs bounded upserts/SET operations on existing keys before reads.".into(),
         ],
     };
 
@@ -241,11 +252,12 @@ fn main() -> BenchResult<()> {
                 match result {
                     Ok(metrics) => {
                         println!(
-                            "{:?}/{:?} run {}: ingest {:.0} ops/s, reads {:.0} ops/s, p99 {:.1} us, {} bytes",
+                            "{:?}/{:?} run {}: ingest {:.0} ops/s, updates {:.0} ops/s, reads {:.0} ops/s, p99 {:.1} us, {} bytes",
                             backend,
                             profile,
                             repetition,
                             metrics.ingest_ops_per_second,
+                            metrics.update_ops_per_second,
                             metrics.read_ops_per_second,
                             metrics.read_latency_us.p99,
                             metrics.physical_data_bytes
@@ -284,6 +296,9 @@ fn validate_args(args: &Args) -> BenchResult<()> {
     if args.records == 0 || args.reads == 0 || args.batch_size == 0 || args.runs == 0 {
         return Err("records, reads, batch-size and runs must be greater than zero".into());
     }
+    if args.updates > args.records {
+        return Err("updates cannot exceed records".into());
+    }
     if args.payload_bytes < 32 {
         return Err("payload-bytes must be at least 32".into());
     }
@@ -320,6 +335,29 @@ fn run_workload(
     let start = Instant::now();
     backend.ingest(records, args.batch_size)?;
     let ingest_elapsed = start.elapsed();
+
+    let updates: Vec<Record> = records
+        .iter()
+        .take(args.updates)
+        .map(|record| {
+            let mut value = record.value.clone();
+            if let Some(first) = value.first_mut() {
+                *first ^= 0x5a;
+            }
+            Record {
+                key: record.key.clone(),
+                value,
+            }
+        })
+        .collect();
+    let update_start = Instant::now();
+    backend.update(&updates, args.batch_size)?;
+    let update_elapsed = update_start.elapsed();
+    if let Some(record) = updates.first() {
+        if backend.get_len(&record.key)? != Some(record.value.len()) {
+            return Err("read-back validation failed after updates".into());
+        }
+    }
 
     let first = backend.get_len(&records[0].key)?;
     if first != Some(records[0].value.len()) {
@@ -366,6 +404,8 @@ fn run_workload(
         ingest_ops_per_second: rate(records.len(), ingest_elapsed),
         read_ops_per_second: rate(args.reads, read_elapsed),
         read_latency_us: latencies(&read_histogram),
+        update_seconds: update_elapsed.as_secs_f64(),
+        update_ops_per_second: rate(args.updates, update_elapsed),
         scan_ops_per_second: rate(args.scan_repeats, scan_elapsed),
         scan_latency_us: latencies(&scan_histogram),
         physical_data_bytes,
@@ -578,7 +618,7 @@ impl BenchBackend for SqliteBackend {
             let transaction = self.connection.transaction()?;
             {
                 let mut statement =
-                    transaction.prepare("INSERT INTO bench_kv(k, v) VALUES (?1, ?2)")?;
+                    transaction.prepare("INSERT OR REPLACE INTO bench_kv(k, v) VALUES (?1, ?2)")?;
                 for record in chunk {
                     statement.execute(params![record.key, record.value])?;
                 }
@@ -640,7 +680,7 @@ impl PostgresBackend {
             .map(|index| format!("(${}, ${})", index * 2 + 1, index * 2 + 2))
             .collect::<Vec<_>>()
             .join(",");
-        format!("INSERT INTO bench_kv(k, v) VALUES {values}")
+        format!("INSERT INTO bench_kv(k, v) VALUES {values} ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v")
     }
 }
 
@@ -721,7 +761,7 @@ impl MysqlBackend {
 
     fn insert_sql(rows: usize) -> String {
         format!(
-            "INSERT INTO bench_kv(k, v) VALUES {}",
+            "INSERT INTO bench_kv(k, v) VALUES {} ON DUPLICATE KEY UPDATE v=VALUES(v)",
             std::iter::repeat_n("(?, ?)", rows)
                 .collect::<Vec<_>>()
                 .join(",")
