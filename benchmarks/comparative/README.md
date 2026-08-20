@@ -41,3 +41,5 @@ Server URLs can be modified with `--postgres-url`, `--mysql-url`, `--mariadb-url
 AProDB and SQLite run in the same runner process. PostgreSQL, MySQL, MariaDB, and Redis/Valkey use a single TCP connection over loopback. The test therefore measures the APIs as they are today, including protocol and SQL parsing where applicable, and does not attempt to isolate only the internal index.
 
 The reported space is the AProDB directory, the SQLite file after checkpoint, `pg_total_relation_size`, the allocated InnoDB tablespace, or Redis/Valkey `used_memory_dataset`. The global WAL/redo/AOF files of servers are not included. The local results published are in [RESULTS.md](RESULTS.md).
+
+A disposable Vast.ai Linux/Tesla T4 validation run from 2026-08-20 is documented in [VAST_2026_08_20.md](VAST_2026_08_20.md). It remains public-beta evidence, not an SLA.

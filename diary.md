@@ -595,5 +595,14 @@ the key file was passed without stripping its label line, and the CLI echoed sen
 content in its error. The key was not written to the repository, but the safe next operational step
 is to rotate the Vast.ai API key before creating new instances.
 
-Limit: paid Vast.ai benchmark execution is intentionally gated until the key is rotated or the
-operator explicitly confirms reuse of the exposed key.
+Follow-up: the operator authorized continuing with Vast.ai. A disposable Tesla T4 host validated
+commit `ec89d5f` from the public-beta validation branch. Linux `fmt`, clippy and test gates passed
+with and without default features. The comparative runner completed 24 valid 50k-record runs for
+AProDB, SQLite, PostgreSQL and MariaDB; an initial MariaDB attempt failed because the benchmark user
+lacked `PROCESS`, then passed after granting the measurement privilege. The runner was then adjusted
+to use ordinary table metrics so this privilege is no longer needed for size measurement. Redis was
+measured separately with `redis-benchmark`. GPU compute initially failed because the CUDA image lacked
+Vulkan/EGL userspace libraries for wgpu; after installing them, the Tesla T4 benchmark completed.
+Supabase live-data import remains blocked by the lack of a working PostgreSQL connection string from
+the available credential file. All Vast instances were destroyed after copying artifacts. The concise
+report is in `benchmarks/comparative/VAST_2026_08_20.md`.
